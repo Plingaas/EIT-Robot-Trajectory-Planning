@@ -1,9 +1,13 @@
 # Local includes
 from .slicer import BaseSlicer
+from .slicer_utils import _segments_to_pyvista_polydata
 
 # Library includes
 import trimesh
 import numpy as np
+import pyvista as pv
+
+from typing import List
 
 
 class Slicer3D(BaseSlicer):
@@ -29,7 +33,6 @@ class Slicer3D(BaseSlicer):
         return self._zs
 
     def slice(self):
-        import pyvista as pv
 
         if self._i >= len(self._zs):
             return None
