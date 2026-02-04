@@ -1,19 +1,17 @@
 import open3d as o3d
 import numpy as np
-from transformation_helper import rotate, translate, assemble_T
+from utils.transformation_helper import rotate, translate, assemble_T
 
-in_path  = "model/shoulder_joint.stl"
-out_path = "model/shoulder_joint_fixed.stl"
+in_path  = "model/end_effector_joint_fixed.stl"
+out_path = "model/end_effector_joint.stl"
 
 mesh = o3d.io.read_triangle_mesh(in_path)
 if mesh.is_empty():
     raise RuntimeError("Failed to load mesh")
 
-mesh.rotate(rotate(-np.pi/2, 0, np.pi))
-mesh.translate(translate(0, -414.7, 34))
-    
-
+mesh.translate(translate(-53.9, 0, 0))
 mesh.compute_vertex_normals()
+
 o3d.io.write_triangle_mesh(out_path, mesh, write_ascii=False)
 
 o3d.visualization.draw_geometries(
