@@ -99,14 +99,13 @@ def log_se3(T: Matrix4x4) -> Matrix4x4:
     T = np.asarray(T, dtype=float)
     if T.shape != (4, 4):
         raise ValueError("log_se3() expects a 4x4 matrix.")
-    Xi = logm(T)
-    Xi = np.real_if_close(Xi, tol=1000).astype(float)
-
+    Xi_hat = logm(T)
+    Xi_hat = np.real_if_close(Xi_hat, tol=1000).astype(float)
     # Numerical cleanup
-    Xi[3, :] = 0.0
-    W = Xi[:3, :3]
-    Xi[:3, :3] = 0.5 * (W - W.T)
-    Xi[3, 3] = 0.0
-    return Xi
+    Xi_hat[3, :] = 0.0
+    W = Xi_hat[:3, :3]
+    Xi_hat[:3, :3] = 0.5 * (W - W.T)
+    Xi_hat[3, 3] = 0.0
+    return Xi_hat
 
 
