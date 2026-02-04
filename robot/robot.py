@@ -6,7 +6,7 @@ from typing import Optional, List, Dict
 import open3d as o3d
 import numpy as np
 
-from transformation_helper import translate, rotate, assemble_T
+from utils.transformation_helper import translate, rotate, assemble_T
 
 @dataclass(frozen=True)
 class JointLimit:
@@ -34,7 +34,7 @@ class Joint():
     mesh: o3d.geometry.TriangleMesh = field(init=False)
     limit: Optional[JointLimit] = None
     T_world: np.ndarray = field(default_factory=lambda: np.eye(4, dtype=float))
-
+    
     def __post_init__(self) -> None:
         self.T_world = np.asarray(self.T_world, dtype=float)
         if self.T_world.shape != (4, 4):
@@ -44,7 +44,10 @@ class Joint():
         if m.is_empty():
             raise FileNotFoundError(f"{self.name}: failed to load mesh: {self.mesh_path}")
         m.compute_vertex_normals()
+
         self.mesh = m
+        self.frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=300.0)
+
 
     def set_world_transform(self, T_new_world: np.ndarray) -> None:
         """
@@ -56,15 +59,11 @@ class Joint():
 
         T_delta = T_new_world @ np.linalg.inv(self.T_world)
         self.mesh.transform(T_delta)
+        self.frame.transform(T_delta)
         self.T_world = T_new_world
 
     def set_color(self, rgb: List[float]) -> None:
         self.mesh.paint_uniform_color(rgb)
-    
-    def make_frame(self, size: float = 300.0) -> o3d.geometry.TriangleMesh:
-        f = o3d.geometry.TriangleMesh.create_coordinate_frame(size=size)
-        f.transform(self.T_world)
-        return f
 
 class UR5:
 
@@ -81,31 +80,31 @@ class UR5:
         self.joints: Dict[str, Joint] = {
             "mount": Joint("mount", 
                            UR5.base_mount_path, 
-                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           None),
 
             "base": Joint("base", 
                           UR5.base_joint_path, 
-                          JointLimit(-359, 359, np.pi, np.pi/2)),
+                          JointLimit(-180, 180, np.pi, np.pi/2)),
 
             "shoulder": Joint("shoulder", 
                               UR5.shoulder_joint_path, 
-                              JointLimit(-359, 359, np.pi, np.pi/2)),
+                              JointLimit(-120, 120, np.pi, np.pi/2)),
 
             "elbow": Joint("elbow", 
                            UR5.elbow_joint_path, 
-                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           JointLimit(-180, 180, np.pi, np.pi/2)),
                            
             "forearm": Joint("forearm", 
                              UR5.forearm_joint_path, 
-                             JointLimit(-359, 359, np.pi, np.pi/2)),
+                             JointLimit(-180, 180, np.pi, np.pi/2)),
 
             "wrist": Joint("wrist", 
                            UR5.wrist_joint_path, 
-                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           JointLimit(-120, 120, np.pi, np.pi/2)),
 
             "end_effector": Joint("end_effector", 
                                   UR5.end_effector_joint_path, 
-                                  JointLimit(-359, 359, np.pi, np.pi/2))
+                                  JointLimit(-360, 360, np.pi, np.pi/2))
         }
     
     
@@ -113,7 +112,7 @@ class UR5:
         return [j.mesh for j in self.joints.values()]
     
     def frames(self, size: float = 300.0) -> List[o3d.geometry.TriangleMesh]:
-        return [j.make_frame(size=size) for j in self.joints.values()]
+        return [j.frame for j in self.joints.values()]
 
 
     def set_joint_pose(self, pose: JointPose):
@@ -132,7 +131,7 @@ class UR5:
 
         # Forward transform
         R_elbow_shoulder = rotate(0, pose.q3, 0)
-        t_elbow_shoulder = translate(0, 131.2, 425)
+        t_elbow_shoulder = translate(0, 131.8, 425)
         T_elbow_shoulder = assemble_T(R_elbow_shoulder, t_elbow_shoulder)
         T_elbow_world = T_shoulder_world @ T_elbow_shoulder
         self.joints["elbow"].set_world_transform(T_elbow_world)
@@ -153,7 +152,7 @@ class UR5:
 
         # Forward transform
         R_end_effector_wrist = rotate(pose.q6, 0, 0)
-        t_end_effector_wrist = translate(45, 0, 0)
+        t_end_effector_wrist = translate(98.9, 0, 0)
         T_end_effector_wrist= assemble_T(R_end_effector_wrist, t_end_effector_wrist)
         T_end_effector_world = T_wrist_world @ T_end_effector_wrist
         self.joints["end_effector"].set_world_transform(T_end_effector_world)
