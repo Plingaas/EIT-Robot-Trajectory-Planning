@@ -1,0 +1,159 @@
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict
+
+import open3d as o3d
+import numpy as np
+
+from transformation_helper import translate, rotate, assemble_T
+
+@dataclass(frozen=True)
+class JointLimit:
+    q_min: float # min joint angle
+    q_max: float
+    qv_max: float
+    qa_max: float
+
+@dataclass
+class JointPose:
+    q1: float
+    q2: float
+    q3: float
+    q4: float
+    q5: float
+    q6: float
+
+    def as_array(self) -> np.ndarray:
+        return np.array([self.q1, self.q2, self.q3, self.q4, self.q5, self.q6], dtype=float)
+
+@dataclass
+class Joint():
+    name: str
+    mesh_path: str
+    mesh: o3d.geometry.TriangleMesh = field(init=False)
+    limit: Optional[JointLimit] = None
+    T_world: np.ndarray = field(default_factory=lambda: np.eye(4, dtype=float))
+
+    def __post_init__(self) -> None:
+        self.T_world = np.asarray(self.T_world, dtype=float)
+        if self.T_world.shape != (4, 4):
+            raise ValueError(f"{self.name}: T_world must be 4x4")
+
+        m = o3d.io.read_triangle_mesh(self.mesh_path)
+        if m.is_empty():
+            raise FileNotFoundError(f"{self.name}: failed to load mesh: {self.mesh_path}")
+        m.compute_vertex_normals()
+        self.mesh = m
+
+    def set_world_transform(self, T_new_world: np.ndarray) -> None:
+        """
+        Update mesh pose to absolute world transform (applies delta).
+        """
+        T_new_world = np.asarray(T_new_world, dtype=float)
+        if T_new_world.shape != (4, 4):
+            raise ValueError(f"{self.name}: T_new_world must be 4x4")
+
+        T_delta = T_new_world @ np.linalg.inv(self.T_world)
+        self.mesh.transform(T_delta)
+        self.T_world = T_new_world
+
+    def set_color(self, rgb: List[float]) -> None:
+        self.mesh.paint_uniform_color(rgb)
+    
+    def make_frame(self, size: float = 300.0) -> o3d.geometry.TriangleMesh:
+        f = o3d.geometry.TriangleMesh.create_coordinate_frame(size=size)
+        f.transform(self.T_world)
+        return f
+
+class UR5:
+
+    # ---- model file paths ----
+    base_mount_path = "model/base_mount_fixed.stl"
+    base_joint_path = "model/base_joint_fixed.stl"
+    shoulder_joint_path = "model/shoulder_joint_fixed.stl"
+    elbow_joint_path = "model/elbow_joint_fixed.stl"
+    forearm_joint_path = "model/forearm_joint_fixed.stl"
+    wrist_joint_path = "model/wrist_joint_fixed.stl"
+    end_effector_joint_path = "model/end_effector_joint_fixed.stl"
+
+    def __init__(self):
+        self.joints: Dict[str, Joint] = {
+            "mount": Joint("mount", 
+                           UR5.base_mount_path, 
+                           JointLimit(-359, 359, np.pi, np.pi/2)),
+
+            "base": Joint("base", 
+                          UR5.base_joint_path, 
+                          JointLimit(-359, 359, np.pi, np.pi/2)),
+
+            "shoulder": Joint("shoulder", 
+                              UR5.shoulder_joint_path, 
+                              JointLimit(-359, 359, np.pi, np.pi/2)),
+
+            "elbow": Joint("elbow", 
+                           UR5.elbow_joint_path, 
+                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           
+            "forearm": Joint("forearm", 
+                             UR5.forearm_joint_path, 
+                             JointLimit(-359, 359, np.pi, np.pi/2)),
+
+            "wrist": Joint("wrist", 
+                           UR5.wrist_joint_path, 
+                           JointLimit(-359, 359, np.pi, np.pi/2)),
+
+            "end_effector": Joint("end_effector", 
+                                  UR5.end_effector_joint_path, 
+                                  JointLimit(-359, 359, np.pi, np.pi/2))
+        }
+    
+    
+    def meshes(self) -> List[o3d.geometry.TriangleMesh]:
+        return [j.mesh for j in self.joints.values()]
+    
+    def frames(self, size: float = 300.0) -> List[o3d.geometry.TriangleMesh]:
+        return [j.make_frame(size=size) for j in self.joints.values()]
+
+
+    def set_joint_pose(self, pose: JointPose):
+
+        # Forward transform
+        R_base_world = rotate(0, 0, pose.q1)
+        t_base_world = translate(0, 0, 99.1 + 63.4)
+        T_base_world = assemble_T(R_base_world, t_base_world)
+        self.joints["base"].set_world_transform(T_base_world)
+
+        R_shoulder_base = rotate(0, pose.q2, 0)
+        t_shoulder_base = translate(0, -137.8, 0)
+        T_shoulder_base = assemble_T(R_shoulder_base, t_shoulder_base)
+        T_shoulder_world = T_base_world @ T_shoulder_base
+        self.joints["shoulder"].set_world_transform(T_shoulder_world)
+
+        # Forward transform
+        R_elbow_shoulder = rotate(0, pose.q3, 0)
+        t_elbow_shoulder = translate(0, 131.2, 425)
+        T_elbow_shoulder = assemble_T(R_elbow_shoulder, t_elbow_shoulder)
+        T_elbow_world = T_shoulder_world @ T_elbow_shoulder
+        self.joints["elbow"].set_world_transform(T_elbow_world)
+
+        # Forward transform
+        R_forearm_elbow = rotate(0, pose.q4, 0)
+        t_forearm_elbow = translate(0, -126.7, 392.2)
+        T_forearm_elbow = assemble_T(R_forearm_elbow, t_forearm_elbow)
+        T_forearm_world = T_elbow_world @ T_forearm_elbow
+        self.joints["forearm"].set_world_transform(T_forearm_world)
+
+        # Forward transform
+        R_wrist_forearm = rotate(0, 0, pose.q5)
+        t_wrist_forearm = translate(0, 0, 99.7)
+        T_wrist_forearm = assemble_T(R_wrist_forearm, t_wrist_forearm)
+        T_wrist_world = T_forearm_world @ T_wrist_forearm
+        self.joints["wrist"].set_world_transform(T_wrist_world)
+
+        # Forward transform
+        R_end_effector_wrist = rotate(pose.q6, 0, 0)
+        t_end_effector_wrist = translate(45, 0, 0)
+        T_end_effector_wrist= assemble_T(R_end_effector_wrist, t_end_effector_wrist)
+        T_end_effector_world = T_wrist_world @ T_end_effector_wrist
+        self.joints["end_effector"].set_world_transform(T_end_effector_world)
