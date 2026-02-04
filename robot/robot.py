@@ -80,31 +80,31 @@ class UR5:
         self.joints: Dict[str, Joint] = {
             "mount": Joint("mount", 
                            UR5.base_mount_path, 
-                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           None),
 
             "base": Joint("base", 
                           UR5.base_joint_path, 
-                          JointLimit(-359, 359, np.pi, np.pi/2)),
+                          JointLimit(-180, 180, np.pi, np.pi/2)),
 
             "shoulder": Joint("shoulder", 
                               UR5.shoulder_joint_path, 
-                              JointLimit(-359, 359, np.pi, np.pi/2)),
+                              JointLimit(-120, 120, np.pi, np.pi/2)),
 
             "elbow": Joint("elbow", 
                            UR5.elbow_joint_path, 
-                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           JointLimit(-180, 180, np.pi, np.pi/2)),
                            
             "forearm": Joint("forearm", 
                              UR5.forearm_joint_path, 
-                             JointLimit(-359, 359, np.pi, np.pi/2)),
+                             JointLimit(-180, 180, np.pi, np.pi/2)),
 
             "wrist": Joint("wrist", 
                            UR5.wrist_joint_path, 
-                           JointLimit(-359, 359, np.pi, np.pi/2)),
+                           JointLimit(-120, 120, np.pi, np.pi/2)),
 
             "end_effector": Joint("end_effector", 
                                   UR5.end_effector_joint_path, 
-                                  JointLimit(-359, 359, np.pi, np.pi/2))
+                                  JointLimit(-360, 360, np.pi, np.pi/2))
         }
     
     
@@ -131,7 +131,7 @@ class UR5:
 
         # Forward transform
         R_elbow_shoulder = rotate(0, pose.q3, 0)
-        t_elbow_shoulder = translate(0, 131.2, 425)
+        t_elbow_shoulder = translate(0, 131.8, 425)
         T_elbow_shoulder = assemble_T(R_elbow_shoulder, t_elbow_shoulder)
         T_elbow_world = T_shoulder_world @ T_elbow_shoulder
         self.joints["elbow"].set_world_transform(T_elbow_world)
@@ -152,7 +152,7 @@ class UR5:
 
         # Forward transform
         R_end_effector_wrist = rotate(pose.q6, 0, 0)
-        t_end_effector_wrist = translate(45, 0, 0)
+        t_end_effector_wrist = translate(98.9, 0, 0)
         T_end_effector_wrist= assemble_T(R_end_effector_wrist, t_end_effector_wrist)
         T_end_effector_world = T_wrist_world @ T_end_effector_wrist
         self.joints["end_effector"].set_world_transform(T_end_effector_world)

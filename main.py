@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 import open3d as o3d
 
-from core.robot import UR5, JointPose
+from robot.robot import UR5, JointPose
 
 
 class UR5Viewer:
