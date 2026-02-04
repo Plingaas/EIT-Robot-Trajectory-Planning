@@ -1,5 +1,7 @@
-/venv
-/personal
+venv/
+.venv/
+
+__pycache__/
 *.pyc
 
-
+personal/
