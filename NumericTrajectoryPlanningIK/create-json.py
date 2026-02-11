@@ -20,7 +20,7 @@ def main():
     qStart, _, _ = clampQ(qStart, jointLimits)
 
     start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0, 0, 0]])
-    goal = np.array([-250, 250, 250, 0.0, 0.0, 0.0], float)
+    goal = np.array([400, -400, 250, 0.5, 0.5, 0.5], float)
     targets = np.linspace(start, goal, N)
 
     traj = generateTrajectoryPose(
