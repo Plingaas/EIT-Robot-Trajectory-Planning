@@ -155,3 +155,9 @@ class UR5:
         T_end_effector_wrist= assemble_T(R_end_effector_wrist, t_end_effector_wrist)
         T_end_effector_world = T_wrist_world @ T_end_effector_wrist
         self.joints["end_effector"].set_world_transform(T_end_effector_world)
+
+    def end_effector_position(self) -> np.ndarray:
+        
+        # Tracks end effector position
+        T = self.joints["end_effector"].T_world
+        return T[:3, 3].copy()

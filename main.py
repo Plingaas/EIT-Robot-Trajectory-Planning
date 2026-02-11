@@ -20,7 +20,14 @@ class UR5Viewer:
         # IMPORTANT: these must be stable objects (not recreated every call)
         self._meshes = self.robot.meshes()
         self._frames = self.robot.frames()
-        self._geoms = [self.world_frame] + self._meshes + self._frames
+
+        self._trace_pts: list[np.ndarray] = []
+        self._trace = o3d.geometry.LineSet()
+        self._trace.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+        self._trace.lines = o3d.utility.Vector2iVector(np.zeros((0, 2), dtype=np.int32))
+        self._trace.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+
+        self._geoms = [self.world_frame] + self._meshes + self._frames + [self._trace]
 
     def open(self, title="UR5 Viewer", width=1280, height=800):
         self.vis.create_window(title, width=width, height=height)
@@ -28,7 +35,7 @@ class UR5Viewer:
             self.vis.add_geometry(g)
 
     def tick(self):
-        for g in (self._meshes + self._frames):
+        for g in (self._meshes + self._frames + [self._trace]):
             self.vis.update_geometry(g)
         self.vis.poll_events()
         self.vis.update_renderer()
@@ -39,7 +46,25 @@ class UR5Viewer:
     def close(self):
         self.vis.destroy_window()
 
-
+    def add_trace_point(self, p_world: np.ndarray, max_points: int = 5000):
+        p_world = np.asarray(p_world, dtype=float).reshape(3,)
+        self._trace_pts.append(p_world)
+    
+        if len(self._trace_pts) > max_points:
+            self._trace_pts = self._trace_pts[-max_points:]
+    
+        if len(self._trace_pts) < 2:
+            return
+    
+        P = np.vstack(self._trace_pts)
+        L = np.column_stack([np.arange(len(P) - 1), np.arange(1, len(P))]).astype(np.int32)
+        C = np.tile(np.array([[0.0, 1.0, 0.0]]), (len(L), 1))
+    
+        self._trace.points = o3d.utility.Vector3dVector(P)
+        self._trace.lines = o3d.utility.Vector2iVector(L)
+        self._trace.colors = o3d.utility.Vector3dVector(C)
+    
+    
 @dataclass(frozen=True)
 class Waypoint:
     t: float              # seconds
@@ -128,21 +153,27 @@ class TrajectoryPlayer:
                 pose = np.array([*q])
 
             robot.set_joint_pose(pose)
+            viewer.add_trace_point(robot.end_effector_position())
             viewer.tick()
             time.sleep(dt)
 
 
 def main():
     robot = UR5()
-    robot.set_joint_pose(np.array([0, 0, 0, 0, 0, 0]))
-
     viewer = UR5Viewer(robot, world_frame_size=300.0)
-    viewer.open("UR5 Trajectory Player")
+    viewer.open("UR5 JointPose unit test")
 
-    traj = TrajectoryPlayer.from_json("trajectory.json")
-    traj.run(viewer, robot, hz=60.0)
+    # Test 90 degrees on joint 1
+    robot.set_joint_pose(JointPose(np.pi/2, 0, 0, 0, 0, 0))  # radians
+    for _ in range(120):
+        viewer.tick()
+        time.sleep(1/60)
 
-    viewer.close()
+    robot.set_joint_pose(JointPose(90, 0, 0, 0, 0, 0))  # degrees
+    for _ in range(120):
+        viewer.tick()
+        time.sleep(1/60)
+
 
 
 if __name__ == "__main__":
