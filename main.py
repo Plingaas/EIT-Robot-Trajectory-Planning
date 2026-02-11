@@ -7,8 +7,8 @@ from typing import Optional
 import numpy as np
 import open3d as o3d
 
-from robot.robot import UR5, JointPose
-
+from robot.robot import UR5
+from core.types import Vector6
 
 class UR5Viewer:
     def __init__(self, robot: UR5, world_frame_size: float = 300.0):
@@ -123,9 +123,9 @@ class TrajectoryPlayer:
             # If your robot expects degrees, keep as-is. If it expects radians, convert here.
             # We'll assume degrees if units == "deg".
             if self.units == "deg":
-                pose = JointPose(*np.deg2rad(q))  # only if your JointPose is degrees-based
+                pose = np.array([*np.deg2rad(q)])  # only if your JointState is degrees-based
             else:
-                pose = JointPose(*q)
+                pose = np.array([*q])
 
             robot.set_joint_pose(pose)
             viewer.tick()
@@ -134,7 +134,7 @@ class TrajectoryPlayer:
 
 def main():
     robot = UR5()
-    robot.set_joint_pose(JointPose(0, 0, 0, 0, 0, 0))
+    robot.set_joint_pose(np.array([0, 0, 0, 0, 0, 0]))
 
     viewer = UR5Viewer(robot, world_frame_size=300.0)
     viewer.open("UR5 Trajectory Player")
