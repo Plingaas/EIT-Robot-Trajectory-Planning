@@ -20,7 +20,7 @@ def main():
     qStart, _, _ = clampQ(qStart, jointLimits)
 
     start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0, 0, 0]])
-    goal = np.array([-0.6, -0.6, -0.6, 0.5, 0.5, 0.5], float)
+    goal = np.array([-250, 250, 250, 0.0, 0.0, 0.0], float)
     targets = np.linspace(start, goal, N)
 
     traj = generateTrajectoryPose(
@@ -28,9 +28,9 @@ def main():
         targets,
         jointLimits,
         smoothw=2e-3,
-        maxIters=200,
+        maxIters=400,
         tol=1e-6,
-        damping=1e-4,
+        damping=1e-3,
         stepScale=0.5
     )
 
@@ -52,6 +52,11 @@ def main():
 
     Path("trajectory.json").write_text(json.dumps(data, indent=2))
     print("trajectory.json exported successfully")
+    Tend = forwardKinematicsT(traj[-1])
+    print("EE xyz:", Tend[:3,3])
+    print("Goal :", goal[:3])
+    print("Error:", goal[:3] - Tend[:3,3])
+    print("Norm :", np.linalg.norm(goal[:3] - Tend[:3,3]))
 
 
 if __name__ == "__main__":

@@ -169,6 +169,7 @@ def main():
     traj = TrajectoryPlayer.from_json("trajectory.json")
     print("units:", traj.units)
     print("last waypoint:", traj.waypoints[-1].t, traj.waypoints[-1].q)
+    
 
     traj.run(viewer, robot, hz=60.0)
 
