@@ -58,7 +58,7 @@ class Joint():
         self.mesh.paint_uniform_color(rgb)
 
 class UR5:
-
+    
     # ---- model file paths ----
     base_mount_path = "model/base_mount_fixed.stl"
     base_joint_path = "model/base_joint_fixed.stl"

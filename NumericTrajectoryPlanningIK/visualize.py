@@ -52,9 +52,9 @@ def animate(
         ax = fig.add_subplot(111, projection="3d")
         axTbl = None
 
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
-    ax.set_zlim(-1, 1.2)
+    ax.set_xlim(-1000, 1000)
+    ax.set_ylim(-1000, 1000)
+    ax.set_zlim(-1000, 1200)
     ax.set_box_aspect([1, 1, 1])
     ax.grid(True)
     ax.view_init(elev=view[0], azim=view[1])

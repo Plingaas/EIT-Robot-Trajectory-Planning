@@ -160,20 +160,19 @@ class TrajectoryPlayer:
 
 def main():
     robot = UR5()
+    robot.set_joint_pose(np.array([0, 0, 0, 0, 0, 0]))
+
     viewer = UR5Viewer(robot, world_frame_size=300.0)
-    viewer.open("UR5 JointPose unit test")
+    viewer.open("UR5 Trajectory Player")
 
-    # Test 90 degrees on joint 1
-    robot.set_joint_pose(JointPose(np.pi/2, 0, 0, 0, 0, 0))  # radians
-    for _ in range(120):
-        viewer.tick()
-        time.sleep(1/60)
+    traj = TrajectoryPlayer.from_json("trajectory.json")
+    traj = TrajectoryPlayer.from_json("trajectory.json")
+    print("units:", traj.units)
+    print("last waypoint:", traj.waypoints[-1].t, traj.waypoints[-1].q)
 
-    robot.set_joint_pose(JointPose(90, 0, 0, 0, 0, 0))  # degrees
-    for _ in range(120):
-        viewer.tick()
-        time.sleep(1/60)
+    traj.run(viewer, robot, hz=60.0)
 
+    viewer.close()
 
 
 if __name__ == "__main__":

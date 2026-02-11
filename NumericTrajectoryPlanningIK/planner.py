@@ -30,7 +30,7 @@ def poseError(q, targets, wPos=1.0, wRot=0.05):
     pCur, RCur = T[:3, 3], T[:3, :3]
     pDes = targets[:3]
     RDes = vectorToR(targets[3:])
-    ePos = pDes - pCur
+    ePos = (pDes - pCur)/1000
     eRot = RToVector(RDes @ RCur.T)
     return np.hstack([wPos * ePos, wRot * eRot])
 
