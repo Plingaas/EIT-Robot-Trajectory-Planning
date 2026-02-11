@@ -21,7 +21,7 @@ def fk(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> Matrix4x4:
     """
     M = np.asarray(M, dtype=float)
     S = np.asarray(S, dtype=float)
-    q = np.asarray(q, dtype=float).reshape(-1) # ensure q is flat
+    q = np.asarray(q, dtype=float).reshape(-1) 
     _raise_on_invalid_input(M, S, q)    
 
     A = np.eye(4, dtype=float)
