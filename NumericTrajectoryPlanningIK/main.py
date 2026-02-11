@@ -16,7 +16,7 @@ qStart = np.deg2rad([0, -90, 90, 120, -90, 0])
 qStart, _, _ = clampQ(qStart, jointLimits)
 
 start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0.0, 0.0, 0.0]])
-goal = np.array([-0.4, 0.5, -0.5, 0, 0, 0], float)
+goal = np.array([-0.4, 0.5, -0.5, -1, -1, -1], float)
 targets = np.linspace(start, goal, N)
 
 traj = generateTrajectoryPose(qStart, targets, jointLimits,
@@ -34,5 +34,6 @@ J = Jacobianfd(traj[-1], goal)
 u, s, vt = np.linalg.svd(J, full_matrices=False)
 print("Jacobian singular values:", s)
 print("condition number:", s[0] / s[-1])
+print(traj)
 
 animate(traj, dt, jointLimits=jointLimits, tableRows=25)
