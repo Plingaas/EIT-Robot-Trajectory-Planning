@@ -21,7 +21,6 @@ def animate(
     showTrace=True,
     traceLen=300,
 
-    # PERFORMANCE CONTROLS
     renderFps=30,
     tableFps=10,
     showTable=True,
