@@ -85,13 +85,13 @@ def exp_se3(Xi_hat: Matrix4x4) -> Matrix4x4:
     Xi_hat = np.asarray(Xi_hat, dtype=float)
     if Xi_hat.shape != (4, 4):
         raise ValueError("exp_se3() expects a 4x4 matrix.")
-    # TODO; Could implement from scratch later
-    return expm(Xi_hat)
+    return expm(Xi_hat) # TODO; Slow as hell, use closed-form solution for better performance.
+
 
 
 def exp_se3_twist(xi: Vector6, theta: float) -> Matrix4x4:
     """Return T ∈ SE(3) as exp(hat(xi)·theta) for twist xi = [ω, v]."""
-    return expm(hat(xi) * theta)
+    return expm(hat(xi) * theta)  # TODO; Slow as hell, use closed-form solution for better performance.
 
 
 def log_se3(T: Matrix4x4) -> Matrix4x4:
