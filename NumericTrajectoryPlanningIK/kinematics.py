@@ -25,9 +25,10 @@ def T_from_R_t(R, t):
     return T
 
 
-def forwardKinematicsT(q):
-
+def forwardKinematicsT(q, returnPoints=False):
     q1, q2, q3, q4, q5, q6 = q
+
+    T0 = np.eye(4)
 
     T_base = T_from_R_t(
         Rz(q1),
@@ -59,6 +60,14 @@ def forwardKinematicsT(q):
         np.array([98.9, 0, 0])
     )
 
-    T = T_base @ T_shoulder @ T_elbow @ T_forearm @ T_wrist @ T_ee
-    return T
+    Ts = [T0]
+    T = T0
+    for Ti in (T_base, T_shoulder, T_elbow, T_forearm, T_wrist, T_ee):
+        T = T @ Ti
+        Ts.append(T)
 
+    if not returnPoints:
+        return Ts[-1]
+
+    pts = np.array([Ti[:3, 3] for Ti in Ts])
+    return Ts[-1], pts

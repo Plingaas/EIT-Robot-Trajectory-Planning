@@ -20,8 +20,8 @@ goal = np.array([-400, -400, 400, 0.5, 0.5, 0.5], float)
 targets = np.linspace(start, goal, N)
 
 traj = generateTrajectoryPose(qStart, targets, jointLimits,
-                               smoothw=2e-3, maxIters=200, tol=1e-6,
-                               damping=1e-4, stepScale=0.5)
+                               smoothw=2e-3, maxIters=400, tol=1e-6,
+                               damping=1e-3, stepScale=0.5)
 
 traj = np.array([clampQ(q, jointLimits)[0] for q in traj])
 
