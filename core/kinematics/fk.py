@@ -1,14 +1,8 @@
 import numpy as np 
-from core.se3 import exp_se3, hat
 from core.types import Matrix4x4, Matrix6xn, Vectorn
+from core.se3 import exp_se3, hat
+from core.kinematics.validation import validate_poe_inputs
 
-def _raise_on_invalid_input(M: Matrix4x4, S: Matrix6xn, q: Vectorn):
-    if M.shape != (4, 4):
-        raise ValueError("M must be 4x4.")
-    if S.shape[0] != 6:
-        raise ValueError("S must be 6xn.")
-    if S.shape[1] != q.size:
-        raise ValueError("Mismatch between S and q.")
 
 def fk(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> Matrix4x4:
     """
@@ -22,7 +16,7 @@ def fk(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> Matrix4x4:
     M = np.asarray(M, dtype=float)
     S = np.asarray(S, dtype=float)
     q = np.asarray(q, dtype=float).reshape(-1) 
-    _raise_on_invalid_input(M, S, q)    
+    validate_poe_inputs(M, S, q)    
 
     A = np.eye(4, dtype=float)
     for i in range(q.size):
@@ -51,7 +45,7 @@ def fk_all(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> tuple[list[Matrix4x4], lis
     M = np.asarray(M, dtype=float)
     S = np.asarray(S, dtype=float)
     q = np.asarray(q, dtype=float).reshape(-1)
-    _raise_on_invalid_input(M, S, q)
+    validate_poe_inputs(M, S, q)
 
     A = np.eye(4, dtype=float)
     A_list = [A.copy()]
@@ -64,3 +58,5 @@ def fk_all(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> tuple[list[Matrix4x4], lis
         A_list.append(A.copy())
         T_list.append((A @ M).copy())
     return A_list, T_list
+
+
