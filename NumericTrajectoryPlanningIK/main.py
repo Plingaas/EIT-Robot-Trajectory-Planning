@@ -1,7 +1,7 @@
 import numpy as np
 from planner import generateTrajectoryPose, Jacobianfd
 from visualize import animate
-from constraints import clampQ
+from constraints import clampQ, checkReach
 from kinematics import forwardKinematicsT
 
 dt, T = 0.05, 2.0
@@ -16,8 +16,10 @@ qStart = np.deg2rad([0, -90, 90, 120, -90, 0])
 qStart, _, _ = clampQ(qStart, jointLimits)
 
 start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0.0, 0.0, 0.0]])
-goal = np.array([-400, -400, 400, 0.5, 0.5, 0.5], float)
+goal = np.array([600, 600, 600, 0.5, 0.5, 0.5], float)
 targets = np.linspace(start, goal, N)
+
+checkReach(goal[:3])
 
 traj = generateTrajectoryPose(qStart, targets, jointLimits,
                                smoothw=2e-3, maxIters=400, tol=1e-6,

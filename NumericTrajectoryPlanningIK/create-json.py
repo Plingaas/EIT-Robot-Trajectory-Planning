@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 
 from planner import generateTrajectoryPose
-from constraints import clampQ
+from constraints import clampQ, checkReach
 from kinematics import forwardKinematicsT
 
 
@@ -20,8 +20,10 @@ def main():
     qStart, _, _ = clampQ(qStart, jointLimits)
 
     start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0, 0, 0]])
-    goal = np.array([600, 600, 850, -0.5, 0.5, 0.5], float)
+    goal = np.array([200, -500, 500, 0.5, 0.5, 0.5], float)
     targets = np.linspace(start, goal, N)
+
+    checkReach(goal[:3])
 
     traj = generateTrajectoryPose(
         qStart,
