@@ -5,7 +5,7 @@ from core.types import Matrix4x4, Matrix6xn, Vectorn
 from core.kinematics.fk import fk_all
 from core.kinematics.validation import validate_poe_inputs
 
-def jacobian(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> Matrix6xn:
+def jacobian_space(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> Matrix6xn:
     """
     Space Jacobian J_s(q) for the space-frame PoE model:
         T(q) = exp([S1]q1) ... exp([Sn]qn) M

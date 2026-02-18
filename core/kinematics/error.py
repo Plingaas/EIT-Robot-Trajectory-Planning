@@ -2,7 +2,7 @@ import numpy as np
 from core.types import Matrix4x4, Vector6
 from core.se3 import inv_se3, log_se3, vee
 
-def pose_error(T: Matrix4x4, T_des: Matrix4x4) -> Vector6:
+def pose_error_space(T: Matrix4x4, T_des: Matrix4x4) -> Vector6:
     """
     Space-frame pose error:
 
