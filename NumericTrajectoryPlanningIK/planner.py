@@ -24,7 +24,7 @@ def RToVector(R):
                   R[1,0] - R[0,1]]) / (2.0 * np.sin(th))
     return th * w
 
-def poseError(q, targets, wPos=1.0, wRot=0.0001):
+def poseError(q, targets, wPos=1.0, wRot=0.005):
     targets = np.asarray(targets, float).reshape(6)
     T = forwardKinematicsT(q)
     pCur, RCur = T[:3, 3], T[:3, :3]
