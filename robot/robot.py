@@ -112,13 +112,66 @@ class UR5:
         return [j.frame for j in self.joints.values()]
 
 
-    def set_joint_pose(self, pose: Vector6):
-
+    def fk_end_effector(self, pose: Vector6) -> np.ndarray:
+        
         q1, q2, q3, q4, q5, q6 = pose
 
         # Forward transform
         R_base_world = rotate(0, 0, q1)
-        t_base_world = translate(0, 0, 99.1 + 63.4)
+        t_base_world = translate(0, 0, 162.5)
+        T_base_world = assemble_T(R_base_world, t_base_world)
+
+        R_shoulder_base = rotate(0, q2, 0)
+        t_shoulder_base = translate(0, -137.8, 0)
+        T_shoulder_base = assemble_T(R_shoulder_base, t_shoulder_base)
+        T_shoulder_world = T_base_world @ T_shoulder_base
+
+        # Forward transform
+        R_elbow_shoulder = rotate(0, q3, 0)
+        t_elbow_shoulder = translate(0, 131.8, 425)
+        T_elbow_shoulder = assemble_T(R_elbow_shoulder, t_elbow_shoulder)
+        T_elbow_world = T_shoulder_world @ T_elbow_shoulder
+
+        # Forward transform
+        R_forearm_elbow = rotate(0, q4, 0)
+        t_forearm_elbow = translate(0, -126.7 - 0.6, 392.2)
+        T_forearm_elbow = assemble_T(R_forearm_elbow, t_forearm_elbow)
+        T_forearm_world = T_elbow_world @ T_forearm_elbow
+
+        # Forward transform
+        R_wrist_forearm = rotate(0, 0, q5-np.pi/2)
+        t_wrist_forearm = translate(0, 0, 99.7)
+        T_wrist_forearm = assemble_T(R_wrist_forearm, t_wrist_forearm)
+        T_wrist_world = T_forearm_world @ T_wrist_forearm
+
+        # Forward transform
+        R_end_effector_wrist = rotate(q6, 0, 0)
+        t_end_effector_wrist = translate(98.9 + 0.7, 0, 0)
+        T_end_effector_wrist= assemble_T(R_end_effector_wrist, t_end_effector_wrist)
+        T_end_effector_world = T_wrist_world @ T_end_effector_wrist
+
+        return T_end_effector_world
+    
+    def joint_limits(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return (lb, ub) arrays shape (6,) in radians."""
+        order = ["base", "shoulder", "elbow", "forearm", "wrist", "end_effector"]
+        lb = np.zeros(6, dtype=float)
+        ub = np.zeros(6, dtype=float)
+        for i, name in enumerate(order):
+            lim = self.joints[name].limit
+            if lim is None:
+                lb[i], ub[i] = -np.inf, np.inf
+            else:
+                lb[i], ub[i] = float(lim.min_pos), float(lim.max_pos)
+        return lb, ub
+    
+    def set_joint_pose(self, pose: Vector6):
+
+        q1, q2, q3, q4, q5, q6 = pose
+        
+        # Forward transform
+        R_base_world = rotate(0, 0, q1)
+        t_base_world = translate(0, 0, 162.5)
         T_base_world = assemble_T(R_base_world, t_base_world)
         self.joints["base"].set_world_transform(T_base_world)
 
@@ -137,13 +190,13 @@ class UR5:
 
         # Forward transform
         R_forearm_elbow = rotate(0, q4, 0)
-        t_forearm_elbow = translate(0, -126.7, 392.2)
+        t_forearm_elbow = translate(0, -126.7 - 0.6, 392.2)
         T_forearm_elbow = assemble_T(R_forearm_elbow, t_forearm_elbow)
         T_forearm_world = T_elbow_world @ T_forearm_elbow
         self.joints["forearm"].set_world_transform(T_forearm_world)
 
         # Forward transform
-        R_wrist_forearm = rotate(0, 0, q5)
+        R_wrist_forearm = rotate(0, 0, q5-np.pi/2)
         t_wrist_forearm = translate(0, 0, 99.7)
         T_wrist_forearm = assemble_T(R_wrist_forearm, t_wrist_forearm)
         T_wrist_world = T_forearm_world @ T_wrist_forearm
@@ -151,7 +204,7 @@ class UR5:
 
         # Forward transform
         R_end_effector_wrist = rotate(q6, 0, 0)
-        t_end_effector_wrist = translate(98.9, 0, 0)
+        t_end_effector_wrist = translate(98.9 + 0.7, 0, 0)
         T_end_effector_wrist= assemble_T(R_end_effector_wrist, t_end_effector_wrist)
         T_end_effector_world = T_wrist_world @ T_end_effector_wrist
         self.joints["end_effector"].set_world_transform(T_end_effector_world)

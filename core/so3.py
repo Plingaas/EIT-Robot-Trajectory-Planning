@@ -85,3 +85,18 @@ def log_so3(R: Matrix3x3) -> Vector3:
 
     wx = (R - R.T) / (2 * np.sin(angle))
     return np.array([wx[2, 1], wx[0, 2], wx[1, 0]], dtype=float)
+
+def log_so3_vec(R: Matrix3x3) -> Vector3:
+    """
+    Return axis-angle rotation vector v = axis * angle (rad).
+    """
+    cos_angle = (np.trace(R) - 1) / 2
+    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+    angle = np.arccos(cos_angle)
+    eps = 1e-8
+
+    if angle < eps:
+        return np.array([0.0, 0.0, 0.0], dtype=float)
+
+    axis = log_so3(R)  # your existing function returns unit axis (or 0)
+    return axis * angle
