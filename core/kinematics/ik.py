@@ -32,7 +32,7 @@ def ik_space_dls(
     max_iterations: int = 100,
     tolerance: float = 0.0001,
     damping: float = 0.01,
-    step_size: float = 0.01,
+    step_size: float = 1.0,
     joint_limits: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, bool, dict]:
     """
