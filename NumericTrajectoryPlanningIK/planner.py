@@ -24,13 +24,13 @@ def RToVector(R):
                   R[1,0] - R[0,1]]) / (2.0 * np.sin(th))
     return th * w
 
-def poseError(q, targets, wPos=1.0, wRot=0.05):
+def poseError(q, targets, wPos=1.0, wRot=0.0001):
     targets = np.asarray(targets, float).reshape(6)
     T = forwardKinematicsT(q)
     pCur, RCur = T[:3, 3], T[:3, :3]
     pDes = targets[:3]
     RDes = vectorToR(targets[3:])
-    ePos = pDes - pCur
+    ePos = (pDes - pCur)
     eRot = RToVector(RDes @ RCur.T)
     return np.hstack([wPos * ePos, wRot * eRot])
 
@@ -45,7 +45,7 @@ def Jacobianfd(q, targets, eps=1e-6):
     return J
 
 def solvePoseIK(qInit, targets, jointLimits, qPrev=None,
-                maxIters=60, tol=1e-4, damping=1e-3, smoothw=1e-2, stepScale=1.0):
+                maxIters=200, tol=1e-4, damping=1e-3, smoothw=1e-2, stepScale=1.0):
     q = np.asarray(qInit, float).copy()
     qPrev = q.copy() if qPrev is None else np.asarray(qPrev, float).copy()
     n = q.size
