@@ -1,6 +1,12 @@
 import numpy as np
 from core.types import Matrix4x4, Matrix6xn, Vectorn
 
+def validate_homogeneous_transform(T: Matrix4x4):
+    T = np.asarray(T)
+    if T.shape != (4, 4):
+        raise ValueError("T must be 4x4.")
+    
+
 def validate_poe_inputs(M: Matrix4x4, S: Matrix6xn, q: Vectorn):
     M = np.asarray(M)
     S = np.asarray(S)
