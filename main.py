@@ -7,9 +7,6 @@ import numpy as np
 import open3d as o3d
 
 from robot.robot import UR5
-<<<<<<< HEAD
-from robot.viewer import UR5Viewer
-=======
 from core.types import Vector6
 
 class UR5Viewer:
@@ -47,7 +44,6 @@ class UR5Viewer:
 
     def close(self):
         self.vis.destroy_window()
->>>>>>> 1efd2ba4b3e99eae35a5a8d94786044c921707ae
 
     def add_trace_point(self, p_world: np.ndarray, max_points: int = 5000):
         p_world = np.asarray(p_world, dtype=float).reshape(3,)
@@ -168,7 +164,6 @@ def main():
     viewer = UR5Viewer(robot, world_frame_size=300.0)
     viewer.open("UR5 Trajectory Player")
 
-    traj = TrajectoryPlayer.from_json("trajectory.json")
     traj = TrajectoryPlayer.from_json("trajectory.json")
     print("units:", traj.units)
     print("last waypoint:", traj.waypoints[-1].t, traj.waypoints[-1].q)
