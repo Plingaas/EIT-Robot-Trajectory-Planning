@@ -29,7 +29,7 @@ s4 = np.hstack((omega_4, v4))
 s5 = np.hstack((omega_5, v5))
 s6 = np.hstack((omega_6, v6))
 
-S = np.column_stack((s1, s2, s3, s4, s5, s6))
+S = np.column_stack((s1, s2, s3, s4, s5, s6)) # This is the screw axes matrix in the space frame
 
 r = np.array([
     [0 , 1, 0], 
@@ -41,6 +41,6 @@ p = np.array([0, -0.2329, 1.0794], dtype=float)
 
 M = np.eye(4, dtype=float)
 M[:3, :3] = r
-M[:3, 3] = p
+M[:3, 3] = p # This is the home configuration of the end-effector frame in the space frame
 
 
