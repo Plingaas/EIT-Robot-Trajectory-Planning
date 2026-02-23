@@ -20,7 +20,7 @@ def main():
     qStart, _, _ = clampQ(qStart, jointLimits)
 
     start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0, 0, 0]])
-    goal = np.array([200, -500, 500, 0.5, 0.5, 0.5], float)
+    goal = np.array([500, 550, 350, 0.0, 0.0, 0.0], float)
     targets = np.linspace(start, goal, N)
 
     checkReach(goal[:3])
