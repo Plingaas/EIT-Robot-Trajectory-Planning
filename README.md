@@ -5,6 +5,8 @@ Designed for kinematic testing, frame alignment, and visualization without ROS.
 
 ---
 
+![](ScreenCapture_2026-02-18-15-05-52.png)
+
 ## Requirements
 
 - Python **3.9+**
