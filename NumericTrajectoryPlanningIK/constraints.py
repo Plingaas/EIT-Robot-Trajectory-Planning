@@ -32,7 +32,7 @@ def checkReach(targetXYZ, rMax=rMax, rMin=rMin, margin=0.0):
         print(msg)
         raise ValueError("Unreachable Cartesian target.")
     
-    if r < (rMin):
+    if (r < rMin):
         msg = (
             f"   Distance from base: {r:.1f} mm\n"
             f"   Minimum reach:      {rMin:.1f} mm\n"
@@ -42,7 +42,7 @@ def checkReach(targetXYZ, rMax=rMax, rMin=rMin, margin=0.0):
         raise ValueError("Unreachable Cartesian target.")
     
     for i in range(0,3):
-        if(p[i]) < rMinReach:
+        if(-rMinReach < (p[i]) < rMinReach):
 
             coord = ["x","y","z"]
             
