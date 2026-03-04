@@ -45,7 +45,8 @@ def Jacobianfd(q, targets, eps=1e-6):
     return J
 
 def solvePoseIK(qInit, targets, jointLimits, qPrev=None,
-                maxIters=200, tol=1e-4, damping=1e-3, smoothw=1e-2, stepScale=1.0):
+                maxIters=200, tol=1e-4, damping=1e-3, smoothw=1e-2, stepScale=1.0,
+                sing_gain=1e-3, sing_eps=1e-6, maxStepRad=0.25):
     q = np.asarray(qInit, float).copy()
     qPrev = q.copy() if qPrev is None else np.asarray(qPrev, float).copy()
     n = q.size
@@ -57,10 +58,22 @@ def solvePoseIK(qInit, targets, jointLimits, qPrev=None,
 
         J = Jacobianfd(q, targets)
 
-        A = J.T @ J + (damping + smoothw) * np.eye(n)
+        # singularity-aware adaptive damping
+        s = np.linalg.svd(J, compute_uv=False)
+        sigma_min = float(np.min(s))
+        damping_sing = sing_gain / (sigma_min**2 + sing_eps)
+
+        A = J.T @ J + (damping + damping_sing + smoothw) * np.eye(n)
         b = -(J.T @ e) - smoothw * (q - qPrev)
 
-        q = q + stepScale * np.linalg.solve(A, b)
+        dq_step = stepScale * np.linalg.solve(A, b)
+
+        # limit step magnitude to avoid IK branch jumps
+        step_norm = float(np.linalg.norm(dq_step))
+        if step_norm > maxStepRad:
+            dq_step *= (maxStepRad / step_norm)
+
+        q = q + dq_step
         q, _, _ = clampQ(q, jointLimits)
 
     return q
@@ -78,9 +91,37 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **IKKwarg
             pct = 100.0 * i / (N - 1 if N > 1 else 1)
             print(f"\rIK progress: {i+1}/{N} ({pct:5.1f}%)", end="", flush=True)
 
-        q = solvePoseIK(q, targets[i], jointLimits, qPrev=qPrev, smoothw=smoothw, **IKKwargs)
+        # --- NEW: multi-seed IK to avoid branch flips ---
+        seeds = [
+            qPrev,
+            qPrev + np.array([0.05, 0, 0, 0, 0, 0]),
+            qPrev - np.array([0.05, 0, 0, 0, 0, 0]),
+            qPrev + np.array([0, 0.05, 0, 0, 0, 0]),
+            qPrev - np.array([0, 0.05, 0, 0, 0, 0]),
+        ]
+        
+        best_q = None
+        best_score = np.inf
+        
+        for s in seeds:
+            s, _, _ = clampQ(s, jointLimits)
+            q_try = solvePoseIK(s, targets[i], jointLimits, qPrev=qPrev, smoothw=smoothw, **IKKwargs)
+            e_try = poseError(q_try, targets[i])
+            # score = pose error + continuity penalty (prefers staying close to previous)
+            score = np.linalg.norm(e_try) + 0.01 * np.linalg.norm(q_try - qPrev)
+            if score < best_score:
+                best_score = score
+                best_q = q_try
+        
+        q = best_q
         traj[i] = q
         qPrev = q
 
     print()
     return traj
+
+def singularity_cost(q, targets, eps=1e-6):
+    J = Jacobianfd(q, targets)
+    s = np.linalg.svd(J, compute_uv=False)
+    sigma_min = float(np.min(s))
+    return 1.0 / (sigma_min**2 + eps)
