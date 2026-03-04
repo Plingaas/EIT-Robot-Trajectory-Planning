@@ -2,7 +2,7 @@ import numpy as np
 
 from pathlib import Path
 
-from robot.robot import VisualLink, VisualRobot
+from visual.model import VisualLink, VisualRobot
 from robot.ur5e_home_poses import HOME_FRAMES, MESH_PATHS, LINK_ORDER
 
 ROOT = Path(__file__).resolve().parent.parent

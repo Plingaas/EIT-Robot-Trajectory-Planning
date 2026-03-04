@@ -1,7 +1,7 @@
 import json
 import numpy as np
 
-from robot.robot import UR5
+from visual.model import UR5
 from ik.providers.ur5 import UR5KinematicsProvider
 from ik.solver import solve_ik  # your provider-based solver entrypoint
 from utils.transformation_helper import rotate  # must match your FK convention

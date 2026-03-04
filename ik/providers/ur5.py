@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from ik.provider import KinematicsProvider
-from robot.robot import UR5  # your class
+from visual.model import UR5  # your class
 
 class UR5KinematicsProvider:
     dof: int = 6

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 
-from robot.robot import UR5
+from visual.model import UR5
 from core.types import Vector6
 
 class UR5Viewer:
