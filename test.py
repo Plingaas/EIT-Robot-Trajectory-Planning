@@ -3,7 +3,7 @@ import numpy as np
 from core.kinematics.fk import fk_links
 from robot.ur5e_parameters import S
 from robot.ur5e_home_poses import LINK_ORDER
-from robot.ur5e_robot import UR5e
+from visual.ur5e_model import UR5e
 from visual.viewer import Viewer
 
 def sample_joint_angles(t: float) -> np.ndarray:
