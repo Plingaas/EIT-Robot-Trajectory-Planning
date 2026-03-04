@@ -33,7 +33,7 @@ class VisualRobot:
     def link_names(self) -> list[str]:
         return [link.name for link in self._links]
 
-    def default_frames(self) -> dict[str, Matrix4x4]:
+    def home_frames(self) -> dict[str, Matrix4x4]:
         return {link.name: np.array(link.home_frame, dtype=float, copy=True) for link in self._links}
 
     def load_mesh(self, link_name: str) -> o3d.geometry.TriangleMesh:

@@ -1,20 +1,10 @@
 import numpy as np
 
-from core.se3 import exp_se3_twist
-from visual.model import UR5
+from core.kinematics.fk import fk_links
 from robot.ur5e_parameters import S
-from visual.ur5e_viewer import UR5Viewer
-
-
-LINK_JOINT_DEPTH = {
-    "mount": 0,
-    "base": 1,
-    "shoulder": 2,
-    "elbow": 3,
-    "forearm": 4,
-    "wrist": 5,
-    "end_effector": 6,
-}
+from robot.ur5e_home_poses import LINK_ORDER
+from robot.ur5e_robot import UR5e
+from visual.ur5e_viewer import UR5eViewer
 
 def sample_joint_angles(t: float) -> np.ndarray:
     return np.array(
@@ -30,28 +20,15 @@ def sample_joint_angles(t: float) -> np.ndarray:
     )
 
 
-def link_frames_world(q: np.ndarray, home_frames: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-    transforms: dict[str, np.ndarray] = {}
-    cumulative = np.eye(4, dtype=float)
-
-    for link_name, depth in LINK_JOINT_DEPTH.items():
-        if depth == 0:
-            transforms[link_name] = np.array(home_frames[link_name], dtype=float, copy=True)
-            continue
-
-        cumulative = cumulative @ exp_se3_twist(S[:, depth - 1], float(q[depth - 1]))
-        transforms[link_name] = cumulative @ home_frames[link_name]
-
-    return transforms
-
-
 if __name__ == "__main__":
-    robot = UR5()
-    viewer = UR5Viewer(robot=robot, window_name="UR5 Motion Test")
-    home_frames = robot.default_frames()
+    robot = UR5e()
+    viewer = UR5eViewer(robot=robot, window_name="UR5e Motion Test")
+    home_frames = robot.home_frames()
+    home_frame_list = [home_frames[name] for name in LINK_ORDER]
 
     def update(t: float) -> None:
         q = sample_joint_angles(t)
-        viewer.set_link_frames(link_frames_world(q, home_frames))
+        link_frames = fk_links(home_frame_list, S, q)
+        viewer.set_link_frames(dict(zip(LINK_ORDER, link_frames)))
 
     viewer.run(update_callback=update, fps=60)
