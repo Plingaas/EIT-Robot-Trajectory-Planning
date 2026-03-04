@@ -4,7 +4,7 @@ from core.kinematics.fk import fk_links
 from robot.ur5e_parameters import S
 from robot.ur5e_home_poses import LINK_ORDER
 from robot.ur5e_robot import UR5e
-from visual.ur5e_viewer import UR5eViewer
+from visual.viewer import Viewer
 
 def sample_joint_angles(t: float) -> np.ndarray:
     return np.array(
@@ -22,13 +22,14 @@ def sample_joint_angles(t: float) -> np.ndarray:
 
 if __name__ == "__main__":
     robot = UR5e()
-    viewer = UR5eViewer(robot=robot, window_name="UR5e Motion Test")
+    viewer = Viewer(window_name="UR5e Motion Test")
+    viewer.add_robot(robot)
     home_frames = robot.home_frames()
     home_frame_list = [home_frames[name] for name in LINK_ORDER]
 
     def update(t: float) -> None:
         q = sample_joint_angles(t)
         link_frames = fk_links(home_frame_list, S, q)
-        viewer.set_link_frames(dict(zip(LINK_ORDER, link_frames)))
+        viewer.set_transforms(dict(zip(LINK_ORDER, link_frames)))
 
     viewer.run(update_callback=update, fps=60)
