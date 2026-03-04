@@ -18,26 +18,22 @@ class VisualLink:
 
 class VisualRobot:
     def __init__(self, links: Iterable[VisualLink]):
-        self._links = tuple(links)
-        if not self._links:
+        self.links = tuple(links)
+        if not self.links:
             raise ValueError("VisualRobot requires at least one link.")
 
-        names = [link.name for link in self._links]
+        names = [link.name for link in self.links]
         if len(set(names)) != len(names):
             raise ValueError("VisualRobot link names must be unique.")
-
-    @property
-    def links(self) -> tuple[VisualLink, ...]:
-        return self._links
-
+        
     def link_names(self) -> list[str]:
-        return [link.name for link in self._links]
+        return [link.name for link in self.links]
 
     def home_frames(self) -> dict[str, Matrix4x4]:
-        return {link.name: np.array(link.home_frame, dtype=float, copy=True) for link in self._links}
+        return {link.name: np.array(link.home_frame, dtype=float, copy=True) for link in self.links}
 
     def load_mesh(self, link_name: str) -> o3d.geometry.TriangleMesh:
-        link = next((item for item in self._links if item.name == link_name), None)
+        link = next((item for item in self.links if item.name == link_name), None)
         if link is None:
             raise KeyError(f"Unknown link '{link_name}'.")
 

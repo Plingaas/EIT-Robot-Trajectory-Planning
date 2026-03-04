@@ -23,7 +23,7 @@ class FrameSequence:
 
 
 @dataclass
-class _VisualObject:
+class VisualObject:
     name: str
     base_mesh: o3d.geometry.TriangleMesh
     mesh: o3d.geometry.TriangleMesh
@@ -42,7 +42,7 @@ class Viewer:
         self.vis = o3d.visualization.Visualizer()
         self.vis.create_window(window_name=window_name, width=width, height=height)
 
-        self._objects: dict[str, _VisualObject] = {}
+        self._objects: dict[str, VisualObject] = {}
         self._world_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=world_frame_size)
         self.vis.add_geometry(self._world_frame)
         self._closed = False
@@ -71,7 +71,7 @@ class Viewer:
             frame_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=frame_size)
             frame_mesh.transform(transform)
 
-        self._objects[name] = _VisualObject(
+        self._objects[name] = VisualObject(
             name=name,
             base_mesh=base_mesh,
             mesh=current_mesh,
