@@ -7,13 +7,13 @@ omega_4 = np.array([0, 1, 0], dtype=float)
 omega_5 = np.array([0, 0, 1], dtype=float)
 omega_6 = np.array([0, 1, 0], dtype=float)
 
-# Dimensions from UR5e CAD, in meters
+# Dimensions from UR5e CAD, in millimeters
 q1 = np.array([0, 0, 0], dtype=float)
-q2 = np.array([0, 0, 0.1625], dtype=float)
-q3 = np.array([0, 0, 0.5875], dtype=float)
-q4 = np.array([0, 0, 0.9797], dtype=float)
-q5 = np.array([0, -0.1333, 0.], dtype=float)
-q6 = np.array([0, -0.18012, 1.0794], dtype=float)
+q2 = np.array([0, 0, 162.5], dtype=float)
+q3 = np.array([0, 0, 587.5], dtype=float)
+q4 = np.array([0, 0, 979.7], dtype=float)
+q5 = np.array([0, -133.3, 0.0], dtype=float)
+q6 = np.array([0, -180.12, 1079.4], dtype=float)
 
 v1 = -np.cross(omega_1, q1)
 v2 = -np.cross(omega_2, q2)
@@ -37,10 +37,8 @@ r = np.array([
     [0 , 0, 1]
 ], dtype=float)
 
-p = np.array([0, -0.2329, 1.0794], dtype=float)
+p = np.array([0, -232.9, 1079.4], dtype=float)
 
 M = np.eye(4, dtype=float)
 M[:3, :3] = r
 M[:3, 3] = p # This is the home configuration of the end-effector frame in the space frame
-
-
