@@ -42,8 +42,8 @@ class Viewer:
     def __init__(
         self,
         window_name: str = "Robot Viewer",
-        width: int = 1280,
-        height: int = 720,
+        width: int = 1420,
+        height: int = 1080,
         world_frame_size: float = 100.0,
     ):
         self.vis = o3d.visualization.Visualizer()

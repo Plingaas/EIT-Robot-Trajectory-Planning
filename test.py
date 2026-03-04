@@ -27,12 +27,13 @@ def build_frame_sequence(
     home_frame_list: list[np.ndarray],
     q_path: list[np.ndarray],
     fps: float,
+    loop: bool = False,
 ) -> FrameSequence:
     frames = []
     for q in q_path:
         link_frames = fk_links(home_frame_list, S, q)
         frames.append(dict(zip(LINK_ORDER, link_frames)))
-    return FrameSequence(frames=frames, fps=fps, loop=False)
+    return FrameSequence(frames=frames, fps=fps, loop=loop)
 
 
 if __name__ == "__main__":
@@ -46,7 +47,7 @@ if __name__ == "__main__":
     half = np.pi / 2
     q_goal = np.array([half, -half, half, -half, half, -half], dtype=float)
 
-    q_path = interpolate_joint_path(q_home, q_goal, num_steps=180)
-    sequence = build_frame_sequence(home_frame_list, q_path, fps=60.0)
+    q_path = interpolate_joint_path(q_home, q_goal, num_steps=100)
+    sequence = build_frame_sequence(home_frame_list, q_path, fps=60.0, loop=True)
 
     viewer.run(sequence=sequence)
