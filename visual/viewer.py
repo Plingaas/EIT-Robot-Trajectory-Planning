@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 
 from core.types import Matrix4x4
-
+from core.kinematics.validation import validate_homogeneous_transform
 
 @dataclass(frozen=True)
 class FrameSequence:
@@ -31,13 +31,6 @@ class _VisualObject:
     frame_size: float | None = None
 
 
-def _validate_transform(transform: Matrix4x4, name: str) -> Matrix4x4:
-    transform = np.asarray(transform, dtype=float)
-    if transform.shape != (4, 4):
-        raise ValueError(f"{name}: expected a 4x4 transform, got {transform.shape}.")
-    return transform
-
-
 class Viewer:
     def __init__(
         self,
@@ -58,24 +51,25 @@ class Viewer:
         self,
         name: str,
         mesh: o3d.geometry.TriangleMesh,
-        transform: Matrix4x4 | None = None,
+        transform: Matrix4x4,
         show_frame: bool = False,
         frame_size: float = 50.0,
     ) -> None:
         if name in self._objects:
             raise ValueError(f"Mesh '{name}' already exists.")
+        
+        validate_homogeneous_transform(transform)
 
-        initial_transform = np.eye(4, dtype=float) if transform is None else _validate_transform(transform, name)
         base_mesh = copy.deepcopy(mesh)
         base_mesh.compute_vertex_normals()
 
         current_mesh = copy.deepcopy(base_mesh)
-        current_mesh.transform(initial_transform)
+        current_mesh.transform(transform)
 
         frame_mesh = None
         if show_frame:
             frame_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=frame_size)
-            frame_mesh.transform(initial_transform)
+            frame_mesh.transform(transform)
 
         self._objects[name] = _VisualObject(
             name=name,
@@ -107,8 +101,8 @@ class Viewer:
     def _set_transform(self, name: str, transform: Matrix4x4) -> None:
         if name not in self._objects:
             raise KeyError(f"Unknown mesh '{name}'.")
+        validate_homogeneous_transform(transform)
         visual_object = self._objects[name]
-        transform = _validate_transform(transform, name=name)
 
         self.vis.remove_geometry(visual_object.mesh, reset_bounding_box=False)
         mesh = copy.deepcopy(visual_object.base_mesh)
