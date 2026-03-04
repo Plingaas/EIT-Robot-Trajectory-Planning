@@ -169,11 +169,15 @@ class Viewer:
 
         while True:
             for frame in sequence.frames:
+                frame_start = time.perf_counter()
                 self.set_transforms(frame)
                 if not self.tick():
                     self.close()
                     return
-                time.sleep(dt)
+                elapsed = time.perf_counter() - frame_start
+                remaining = dt - elapsed
+                if remaining > 0.0:
+                    time.sleep(remaining)
 
             if not sequence.loop:
                 break
