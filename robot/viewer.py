@@ -1,32 +1,38 @@
-import open3d as o3d
+from __future__ import annotations
+
+from core.types import Matrix4x4
+from visual.viewer import FrameSequence, Viewer
 
 from .robot import UR5
 
-class UR5Viewer:
-    def __init__(self, robot: UR5, world_frame_size: float = 300.0):
-        self.robot = robot
-        self.vis = o3d.visualization.Visualizer()
 
-        self.world_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=world_frame_size)
+class UR5Viewer(Viewer):
+    def __init__(
+        self,
+        robot: UR5 | None = None,
+        window_name: str = "UR5 Viewer",
+        width: int = 1280,
+        height: int = 720,
+        world_frame_size: float = 100.0,
+        show_frames: bool = False,
+        frame_size: float = 50.0,
+    ):
+        super().__init__(
+            window_name=window_name,
+            width=width,
+            height=height,
+            world_frame_size=world_frame_size,
+        )
+        self.robot = robot or UR5()
+        self.add_robot(self.robot, show_frames=show_frames, frame_size=frame_size)
 
-        # IMPORTANT: these must be stable objects (not recreated every call)
-        self._meshes = self.robot.meshes()
-        self._frames = self.robot.frames()
-        self._geoms = [self.world_frame] + self._meshes + self._frames
+    def set_link_frames(self, frames: dict[str, Matrix4x4]) -> None:
+        self.set_transforms(frames)
 
-    def open(self, title="UR5 Viewer", width=1280, height=800):
-        self.vis.create_window(title, width=width, height=height)
-        for g in self._geoms:
-            self.vis.add_geometry(g)
-
-    def tick(self):
-        for g in (self._meshes + self._frames):
-            self.vis.update_geometry(g)
-        self.vis.poll_events()
-        self.vis.update_renderer()
-
-    def is_open(self) -> bool:
-        return self.vis.poll_events()
-
-    def close(self):
-        self.vis.destroy_window()
+    def run_frames(
+        self,
+        frames: list[dict[str, Matrix4x4]],
+        fps: float = 60.0,
+        loop: bool = False,
+    ) -> None:
+        self.run(FrameSequence(frames=frames, fps=fps, loop=loop))
