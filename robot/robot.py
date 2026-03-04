@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -8,10 +6,6 @@ import numpy as np
 import open3d as o3d
 
 from core.types import Matrix4x4
-from robot.home_poses import HOME_FRAMES, MESH_PATHS
-
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass(frozen=True)
@@ -56,26 +50,3 @@ class VisualRobot:
             mesh.paint_uniform_color(link.color)
         return mesh
 
-
-class UR5(VisualRobot):
-    LINK_ORDER = (
-        "mount",
-        "base",
-        "shoulder",
-        "elbow",
-        "forearm",
-        "wrist",
-        "end_effector",
-    )
-
-    def __init__(self):
-        links = []
-        for name in self.LINK_ORDER:
-            links.append(
-                VisualLink(
-                    name=name,
-                    mesh_path=REPO_ROOT / MESH_PATHS[name],
-                    home_frame=np.array(HOME_FRAMES[name], dtype=float, copy=True),
-                )
-            )
-        super().__init__(links)

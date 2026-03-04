@@ -1,16 +1,14 @@
-from __future__ import annotations
-
 from core.types import Matrix4x4
 from visual.viewer import FrameSequence, Viewer
 
-from .robot import UR5
+from robot.ur5e_robot import UR5e
 
 
-class UR5Viewer(Viewer):
+class UR5eViewer(Viewer):
     def __init__(
         self,
-        robot: UR5 | None = None,
-        window_name: str = "UR5 Viewer",
+        robot: UR5e,
+        window_name: str = "UR5e Viewer",
         width: int = 1280,
         height: int = 720,
         world_frame_size: float = 100.0,
@@ -23,7 +21,7 @@ class UR5Viewer(Viewer):
             height=height,
             world_frame_size=world_frame_size,
         )
-        self.robot = robot or UR5()
+        self.robot = robot
         self.add_robot(self.robot, show_frames=show_frames, frame_size=frame_size)
 
     def set_link_frames(self, frames: dict[str, Matrix4x4]) -> None:
