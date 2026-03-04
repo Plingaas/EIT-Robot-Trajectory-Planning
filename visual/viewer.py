@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 import copy
 import time
-from dataclasses import dataclass
-from typing import Callable, Mapping, Sequence
-
 import numpy as np
 import open3d as o3d
+
+from dataclasses import dataclass
+from typing import Callable, Mapping, Sequence
 
 from core.types import Matrix4x4
 
@@ -55,9 +53,6 @@ class Viewer:
         self._world_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=world_frame_size)
         self.vis.add_geometry(self._world_frame)
         self._closed = False
-
-    def open(self) -> "Viewer":
-        return self
 
     def add_mesh(
         self,
@@ -109,7 +104,7 @@ class Viewer:
                 frame_size=frame_size,
             )
 
-    def set_transform(self, name: str, transform: Matrix4x4) -> None:
+    def _set_transform(self, name: str, transform: Matrix4x4) -> None:
         if name not in self._objects:
             raise KeyError(f"Unknown mesh '{name}'.")
         visual_object = self._objects[name]
@@ -130,16 +125,13 @@ class Viewer:
             visual_object.frame_mesh = frame_mesh
             self.vis.add_geometry(visual_object.frame_mesh, reset_bounding_box=False)
 
-    def update_transform(self, name: str, transform: Matrix4x4) -> None:
-        self.set_transform(name, transform)
-
     def set_transforms(self, transforms: Mapping[str, Matrix4x4]) -> None:
         missing = [name for name in transforms if name not in self._objects]
         if missing:
             raise KeyError(f"Unknown meshes in frame: {missing}")
 
         for name, transform in transforms.items():
-            self.set_transform(name, transform)
+            self._set_transform(name, transform)
 
     def tick(self) -> bool:
         for visual_object in self._objects.values():
@@ -159,7 +151,7 @@ class Viewer:
         self,
         sequence: FrameSequence | None = None,
         update_callback: Callable[[float], None] | None = None,
-        fps: float | None = None,
+        fps: float = 60.0,
     ) -> None:
         if sequence is not None and update_callback is not None:
             raise ValueError("Use either 'sequence' or 'update_callback', not both.")
@@ -170,7 +162,7 @@ class Viewer:
             self._run_sequence(sequence)
             return
 
-        self._run_callback(update_callback=update_callback, fps=60.0 if fps is None else fps)
+        self._run_callback(update_callback=update_callback, fps=fps)
 
     def _run_sequence(self, sequence: FrameSequence) -> None:
         dt = 1.0 / sequence.fps
@@ -191,7 +183,7 @@ class Viewer:
 
         self.close()
 
-    def _run_callback(self, update_callback: Callable[[float], None], fps: float) -> None:
+    def _run_callback(self, update_callback: Callable[[float], None], fps: float = 60.0) -> None:
         if fps <= 0.0:
             raise ValueError("fps must be > 0.")
 

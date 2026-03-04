@@ -30,6 +30,7 @@ if __name__ == "__main__":
     def update(t: float) -> None:
         q = sample_joint_angles(t)
         link_frames = fk_links(home_frame_list, S, q)
-        viewer.set_transforms(dict(zip(LINK_ORDER, link_frames)))
+        transforms = dict(zip(LINK_ORDER, link_frames))
+        viewer.set_transforms(transforms)
 
     viewer.run(update_callback=update, fps=60)
