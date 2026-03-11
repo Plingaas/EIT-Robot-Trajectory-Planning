@@ -33,13 +33,17 @@ def interpolate_joint_path(
 def build_frame_sequence(
     home_frame_list: list[np.ndarray],
     q_path: list[np.ndarray],
-    fps: float,
+    dt: float,
 ) -> FrameSequence:
+    if dt <= 0.0:
+        raise ValueError("dt must be > 0.")
+
     frames = []
     for q in q_path:
         link_frames = fk_links(home_frame_list, S, q)
         frames.append(dict(zip(LINK_ORDER, link_frames)))
-    return FrameSequence(frames=frames, fps=fps)
+    times = (np.arange(len(frames), dtype=float) * dt).tolist()
+    return FrameSequence(frames=frames, times=times)
 
 
 def build_dance_path(poses: list[np.ndarray], steps_per_move: int) -> list[np.ndarray]:
@@ -89,6 +93,6 @@ if __name__ == "__main__":
     home_frame_list = [home_frames[name] for name in LINK_ORDER]
 
     q_path = build_sway_path(num_cycles=6, steps_per_cycle=90)
-    sequence = build_frame_sequence(home_frame_list, q_path, fps=10.0)
+    sequence = build_frame_sequence(home_frame_list, q_path, dt=0.1)
 
     viewer.run_sequence(sequence=sequence, loop=True)
