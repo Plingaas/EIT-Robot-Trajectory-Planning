@@ -12,14 +12,22 @@ from core.kinematics.validation import validate_homogeneous_transform
 @dataclass(frozen=True)
 class FrameSequence:
     frames: Sequence[Mapping[str, Matrix4x4]]
-    fps: float = 60.0
-    loop: bool = False
+    times: Sequence[float] | None = None
+    fps: float | None = 60.0
 
     def __post_init__(self) -> None:
-        if self.fps <= 0.0:
-            raise ValueError("FrameSequence.fps must be > 0.")
         if not self.frames:
             raise ValueError("FrameSequence requires at least one frame.")
+        if self.times is not None:
+            if len(self.times) != len(self.frames):
+                raise ValueError("FrameSequence.times must have the same length as frames.")
+            if any(t < 0.0 for t in self.times):
+                raise ValueError("FrameSequence.times must be >= 0.")
+            if any(t1 <= t0 for t0, t1 in zip(self.times, self.times[1:])):
+                raise ValueError("FrameSequence.times must be strictly increasing.")
+            return
+        if self.fps is None or self.fps <= 0.0:
+            raise ValueError("FrameSequence.fps must be > 0 when times are not provided.")
 
 
 @dataclass
@@ -204,28 +212,17 @@ class Viewer:
             return False
         return self.vis.poll_events()
 
-    def run(
-        self,
-        sequence: FrameSequence | None = None,
-        update_callback: Callable[[float], None] | None = None,
-        fps: float = 60.0,
-    ) -> None:
-        if sequence is not None and update_callback is not None:
-            raise ValueError("Use either 'sequence' or 'update_callback', not both.")
-        if sequence is None and update_callback is None:
-            raise ValueError("Viewer.run() requires either 'sequence' or 'update_callback'.")
-
-        if sequence is not None:
-            self._run_sequence(sequence)
-            return
-
-        self._run_callback(update_callback=update_callback, fps=fps)
-
-    def _run_sequence(self, sequence: FrameSequence) -> None:
-        dt = 1.0 / sequence.fps
+    def run_sequence(self, sequence: FrameSequence, loop: bool = False) -> None:
+        if sequence.times is not None:
+            frame_intervals = [
+                sequence.times[i + 1] - sequence.times[i]
+                for i in range(len(sequence.times) - 1)
+            ] + [0.0]
+        else:
+            frame_intervals = [1.0 / sequence.fps] * len(sequence.frames)
 
         while True:
-            for frame in sequence.frames:
+            for frame, dt in zip(sequence.frames, frame_intervals):
                 frame_start = time.perf_counter()
                 self.set_transforms(frame)
                 if not self.tick():
@@ -236,7 +233,7 @@ class Viewer:
                 if remaining > 0.0:
                     time.sleep(remaining)
 
-            if not sequence.loop:
+            if not loop:
                 break
 
         while self.tick():
@@ -244,7 +241,7 @@ class Viewer:
 
         self.close()
 
-    def _run_callback(self, update_callback: Callable[[float], None], fps: float = 60.0) -> None:
+    def run_callback(self, update_callback: Callable[[float], None], fps: float = 60.0) -> None:
         if fps <= 0.0:
             raise ValueError("fps must be > 0.")
 
