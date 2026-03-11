@@ -31,6 +31,15 @@ class VisualObject:
     frame_size: float | None = None
 
 
+@dataclass
+class TraceObject:
+    target_name: str
+    line_set: o3d.geometry.LineSet
+    color: np.ndarray
+    max_points: int
+    points: list[np.ndarray]
+
+
 class Viewer:
     def __init__(
         self,
@@ -43,6 +52,7 @@ class Viewer:
         self.vis.create_window(window_name=window_name, width=width, height=height)
 
         self._objects: dict[str, VisualObject] = {}
+        self._traces: dict[str, TraceObject] = {}
         self._world_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=world_frame_size)
         self.vis.add_geometry(self._world_frame)
         self._closed = False
@@ -98,6 +108,33 @@ class Viewer:
                 frame_size=frame_size,
             )
 
+    def add_trace(
+        self,
+        target_name: str,
+        color: tuple[float, float, float] = (0.0, 1.0, 0.0),
+        max_points: int = 5000,
+    ) -> None:
+        if target_name not in self._objects:
+            raise KeyError(f"Unknown mesh '{target_name}'.")
+        if target_name in self._traces:
+            raise ValueError(f"Trace for '{target_name}' already exists.")
+        if max_points < 2:
+            raise ValueError("max_points must be at least 2.")
+
+        line_set = o3d.geometry.LineSet()
+        line_set.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+        line_set.lines = o3d.utility.Vector2iVector(np.zeros((0, 2), dtype=np.int32))
+        line_set.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+
+        self._traces[target_name] = TraceObject(
+            target_name=target_name,
+            line_set=line_set,
+            color=np.asarray(color, dtype=float),
+            max_points=max_points,
+            points=[],
+        )
+        self.vis.add_geometry(line_set)
+
     def _set_transform(self, name: str, transform: Matrix4x4) -> None:
         if name not in self._objects:
             raise KeyError(f"Unknown mesh '{name}'.")
@@ -126,12 +163,38 @@ class Viewer:
 
         for name, transform in transforms.items():
             self._set_transform(name, transform)
+        self._update_traces(transforms)
+
+    def _update_traces(self, transforms: Mapping[str, Matrix4x4]) -> None:
+        for target_name, trace in self._traces.items():
+            transform = transforms.get(target_name)
+            if transform is None:
+                continue
+
+            trace.points.append(np.asarray(transform[:3, 3], dtype=float).reshape(3,))
+            if len(trace.points) > trace.max_points:
+                trace.points = trace.points[-trace.max_points:]
+
+            if len(trace.points) < 2:
+                continue
+
+            points = np.vstack(trace.points)
+            lines = np.column_stack(
+                [np.arange(len(points) - 1), np.arange(1, len(points))]
+            ).astype(np.int32)
+            colors = np.tile(trace.color, (len(lines), 1))
+
+            trace.line_set.points = o3d.utility.Vector3dVector(points)
+            trace.line_set.lines = o3d.utility.Vector2iVector(lines)
+            trace.line_set.colors = o3d.utility.Vector3dVector(colors)
 
     def tick(self) -> bool:
         for visual_object in self._objects.values():
             self.vis.update_geometry(visual_object.mesh)
             if visual_object.frame_mesh is not None:
                 self.vis.update_geometry(visual_object.frame_mesh)
+        for trace in self._traces.values():
+            self.vis.update_geometry(trace.line_set)
         is_open = self.vis.poll_events()
         self.vis.update_renderer()
         return is_open

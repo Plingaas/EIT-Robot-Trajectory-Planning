@@ -3,45 +3,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
 
 from core.kinematics.fk import fk_links
 from robot.ur5e_home_poses import LINK_ORDER
 from robot.ur5e_parameters import S
 from visual.ur5e_model import UR5e
-from visual.viewer import Viewer
-
-
-class TracePath:
-    def __init__(self, viewer: Viewer, color: tuple[float, float, float] = (0.0, 1.0, 0.0)):
-        self._viewer = viewer
-        self._color = np.asarray(color, dtype=float)
-        self._points: list[np.ndarray] = []
-        self._line_set = o3d.geometry.LineSet()
-        self._line_set.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
-        self._line_set.lines = o3d.utility.Vector2iVector(np.zeros((0, 2), dtype=np.int32))
-        self._line_set.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
-        self._viewer.vis.add_geometry(self._line_set)
-
-    def add_point(self, point_world: np.ndarray, max_points: int = 5000) -> None:
-        point_world = np.asarray(point_world, dtype=float).reshape(3,)
-        self._points.append(point_world)
-        if len(self._points) > max_points:
-            self._points = self._points[-max_points:]
-
-        if len(self._points) < 2:
-            return
-
-        points = np.vstack(self._points)
-        lines = np.column_stack(
-            [np.arange(len(points) - 1), np.arange(1, len(points))]
-        ).astype(np.int32)
-        colors = np.tile(self._color, (len(lines), 1))
-
-        self._line_set.points = o3d.utility.Vector3dVector(points)
-        self._line_set.lines = o3d.utility.Vector2iVector(lines)
-        self._line_set.colors = o3d.utility.Vector3dVector(colors)
-        self._viewer.vis.update_geometry(self._line_set)
+from visual.viewer import FrameSequence, Viewer
 
 
 @dataclass(frozen=True)
@@ -109,27 +76,41 @@ class TrajectoryPlayer:
             return q
         raise ValueError(f"Unsupported trajectory units '{self.units}'. Expected 'deg' or 'rad'.")
 
+    def build_frame_sequence(
+        self,
+        home_frame_list: list[np.ndarray],
+        fps: float = 60.0,
+        loop: bool = True,
+    ) -> FrameSequence:
+        if fps <= 0.0:
+            raise ValueError("fps must be > 0.")
+
+        sample_count = max(2, int(np.ceil(self.duration * fps)))
+        sample_times = np.arange(sample_count, dtype=float) / fps
+
+        frames = []
+        for t in sample_times:
+            q = self.sample_radians(t)
+            link_frames = fk_links(home_frame_list, S, q)
+            frames.append(dict(zip(LINK_ORDER, link_frames)))
+
+        return FrameSequence(frames=frames, fps=fps, loop=loop)
+
 
 def main() -> None:
     robot = UR5e()
     viewer = Viewer(window_name="UR5 Trajectory Player", world_frame_size=300.0)
     viewer.add_robot(robot, show_frames=True, frame_size=120.0)
+    viewer.add_trace("end_effector")
 
-    trace = TracePath(viewer)
     home_frames = robot.home_frames()
     home_frame_list = [home_frames[name] for name in LINK_ORDER]
 
     traj = TrajectoryPlayer.from_json("trajectory.json")
     print("units:", traj.units)
     print("last waypoint:", traj.waypoints[-1].t, traj.waypoints[-1].q)
-
-    def update(t_now: float) -> None:
-        q = traj.sample_radians(t_now)
-        link_frames = fk_links(home_frame_list, S, q)
-        viewer.set_transforms(dict(zip(LINK_ORDER, link_frames)))
-        trace.add_point(link_frames[-1][:3, 3])
-
-    viewer.run(update_callback=update, fps=60.0)
+    sequence = traj.build_frame_sequence(home_frame_list, fps=60.0, loop=True)
+    viewer.run(sequence=sequence)
 
 
 if __name__ == "__main__":
