@@ -1,13 +1,14 @@
 import copy
 import time
-import numpy as np
-import open3d as o3d
-
 from dataclasses import dataclass
 from typing import Callable, Mapping, Sequence
 
-from core.types import Matrix4x4
+import numpy as np
+import open3d as o3d
+
 from core.kinematics.validation import validate_homogeneous_transform
+from core.types import Matrix4x4
+
 
 @dataclass(frozen=True)
 class FrameSequence:
@@ -30,6 +31,7 @@ class VisualObject:
     name: str
     base_mesh: o3d.geometry.TriangleMesh
     mesh: o3d.geometry.TriangleMesh
+    current_transform: np.ndarray
     frame_mesh: o3d.geometry.TriangleMesh | None = None
     frame_size: float | None = None
 
@@ -70,24 +72,27 @@ class Viewer:
     ) -> None:
         if name in self._objects:
             raise ValueError(f"Mesh '{name}' already exists.")
-        
+
         validate_homogeneous_transform(transform)
+
+        T = np.asarray(transform, dtype=float)
 
         base_mesh = copy.deepcopy(mesh)
         base_mesh.compute_vertex_normals()
 
         current_mesh = copy.deepcopy(base_mesh)
-        current_mesh.transform(transform)
+        current_mesh.transform(T)
 
         frame_mesh = None
         if show_frame:
             frame_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(size=frame_size)
-            frame_mesh.transform(transform)
+            frame_mesh.transform(T)
 
         self._objects[name] = VisualObject(
             name=name,
             base_mesh=base_mesh,
             mesh=current_mesh,
+            current_transform=T.copy(),
             frame_mesh=frame_mesh,
             frame_size=frame_size if show_frame else None,
         )
@@ -141,23 +146,20 @@ class Viewer:
     def _set_transform(self, name: str, transform: Matrix4x4) -> None:
         if name not in self._objects:
             raise KeyError(f"Unknown mesh '{name}'.")
+
         validate_homogeneous_transform(transform)
+
         visual_object = self._objects[name]
+        T_old = visual_object.current_transform
+        T_new = np.asarray(transform, dtype=float)
 
-        self.vis.remove_geometry(visual_object.mesh, reset_bounding_box=False)
-        mesh = copy.deepcopy(visual_object.base_mesh)
-        mesh.transform(transform)
-        visual_object.mesh = mesh
-        self.vis.add_geometry(visual_object.mesh, reset_bounding_box=False)
+        T_delta = T_new @ np.linalg.inv(T_old)
 
+        visual_object.mesh.transform(T_delta)
         if visual_object.frame_mesh is not None:
-            self.vis.remove_geometry(visual_object.frame_mesh, reset_bounding_box=False)
-            frame_mesh = o3d.geometry.TriangleMesh.create_coordinate_frame(
-                size=50.0 if visual_object.frame_size is None else visual_object.frame_size
-            )
-            frame_mesh.transform(transform)
-            visual_object.frame_mesh = frame_mesh
-            self.vis.add_geometry(visual_object.frame_mesh, reset_bounding_box=False)
+            visual_object.frame_mesh.transform(T_delta)
+
+        visual_object.current_transform = T_new.copy()
 
     def set_transforms(self, transforms: Mapping[str, Matrix4x4]) -> None:
         missing = [name for name in transforms if name not in self._objects]
@@ -166,6 +168,7 @@ class Viewer:
 
         for name, transform in transforms.items():
             self._set_transform(name, transform)
+
         self._update_traces(transforms)
 
     def _update_traces(self, transforms: Mapping[str, Matrix4x4]) -> None:
@@ -196,41 +199,13 @@ class Viewer:
             self.vis.update_geometry(visual_object.mesh)
             if visual_object.frame_mesh is not None:
                 self.vis.update_geometry(visual_object.frame_mesh)
+
         for trace in self._traces.values():
             self.vis.update_geometry(trace.line_set)
+
         is_open = self.vis.poll_events()
         self.vis.update_renderer()
         return is_open
-
-    def is_open(self) -> bool:
-        if self._closed:
-            return False
-        return self.vis.poll_events()
-
-    def run_sequence(self, sequence: FrameSequence, loop: bool = False) -> None:
-        relative_times = [t - sequence.times[0] for t in sequence.times]
-
-        while True:
-            cycle_start = time.perf_counter()
-
-            for frame, target_time in zip(sequence.frames, relative_times):
-                target_wall_time = cycle_start + target_time
-                now = time.perf_counter()
-                if now < target_wall_time:
-                    time.sleep(target_wall_time - now)
-
-                self.set_transforms(frame)
-                if not self.tick():
-                    self.close()
-                    return
-
-            if not loop:
-                break
-
-        while self.tick():
-            time.sleep(0.01)
-
-        self.close()
 
     def run_callback(self, update_callback: Callable[[float], None], fps: float = 60.0) -> None:
         if fps <= 0.0:
@@ -249,6 +224,7 @@ class Viewer:
             update_callback(now - t0)
             if not self.tick():
                 break
+
             t_next += dt
 
         self.close()
