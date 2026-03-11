@@ -34,13 +34,12 @@ def build_frame_sequence(
     home_frame_list: list[np.ndarray],
     q_path: list[np.ndarray],
     fps: float,
-    loop: bool = False,
 ) -> FrameSequence:
     frames = []
     for q in q_path:
         link_frames = fk_links(home_frame_list, S, q)
         frames.append(dict(zip(LINK_ORDER, link_frames)))
-    return FrameSequence(frames=frames, fps=fps, loop=loop)
+    return FrameSequence(frames=frames, fps=fps)
 
 
 def build_dance_path(poses: list[np.ndarray], steps_per_move: int) -> list[np.ndarray]:
@@ -84,10 +83,12 @@ if __name__ == "__main__":
     robot = UR5e()
     viewer = Viewer(window_name="UR5e Motion Test")
     viewer.add_robot(robot)
+    viewer.add_trace("end_effector")
+
     home_frames = robot.home_frames()
     home_frame_list = [home_frames[name] for name in LINK_ORDER]
 
     q_path = build_sway_path(num_cycles=6, steps_per_cycle=90)
-    sequence = build_frame_sequence(home_frame_list, q_path, fps=60.0, loop=True)
+    sequence = build_frame_sequence(home_frame_list, q_path, fps=10.0)
 
-    viewer.run(sequence=sequence)
+    viewer.run_sequence(sequence=sequence, loop=True)
