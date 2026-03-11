@@ -12,22 +12,17 @@ from core.kinematics.validation import validate_homogeneous_transform
 @dataclass(frozen=True)
 class FrameSequence:
     frames: Sequence[Mapping[str, Matrix4x4]]
-    times: Sequence[float] | None = None
-    fps: float | None = 60.0
+    times: Sequence[float]
 
     def __post_init__(self) -> None:
         if not self.frames:
             raise ValueError("FrameSequence requires at least one frame.")
-        if self.times is not None:
-            if len(self.times) != len(self.frames):
-                raise ValueError("FrameSequence.times must have the same length as frames.")
-            if any(t < 0.0 for t in self.times):
-                raise ValueError("FrameSequence.times must be >= 0.")
-            if any(t1 <= t0 for t0, t1 in zip(self.times, self.times[1:])):
-                raise ValueError("FrameSequence.times must be strictly increasing.")
-            return
-        if self.fps is None or self.fps <= 0.0:
-            raise ValueError("FrameSequence.fps must be > 0 when times are not provided.")
+        if len(self.times) != len(self.frames):
+            raise ValueError("FrameSequence.times must have the same length as frames.")
+        if any(t < 0.0 for t in self.times):
+            raise ValueError("FrameSequence.times must be >= 0.")
+        if any(t1 <= t0 for t0, t1 in zip(self.times, self.times[1:])):
+            raise ValueError("FrameSequence.times must be strictly increasing.")
 
 
 @dataclass
@@ -213,25 +208,21 @@ class Viewer:
         return self.vis.poll_events()
 
     def run_sequence(self, sequence: FrameSequence, loop: bool = False) -> None:
-        if sequence.times is not None:
-            frame_intervals = [
-                sequence.times[i + 1] - sequence.times[i]
-                for i in range(len(sequence.times) - 1)
-            ] + [0.0]
-        else:
-            frame_intervals = [1.0 / sequence.fps] * len(sequence.frames)
+        relative_times = [t - sequence.times[0] for t in sequence.times]
 
         while True:
-            for frame, dt in zip(sequence.frames, frame_intervals):
-                frame_start = time.perf_counter()
+            cycle_start = time.perf_counter()
+
+            for frame, target_time in zip(sequence.frames, relative_times):
+                target_wall_time = cycle_start + target_time
+                now = time.perf_counter()
+                if now < target_wall_time:
+                    time.sleep(target_wall_time - now)
+
                 self.set_transforms(frame)
                 if not self.tick():
                     self.close()
                     return
-                elapsed = time.perf_counter() - frame_start
-                remaining = dt - elapsed
-                if remaining > 0.0:
-                    time.sleep(remaining)
 
             if not loop:
                 break
