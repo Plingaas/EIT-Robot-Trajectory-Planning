@@ -1,64 +1,186 @@
 import json
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 from planner import generateTrajectoryPose
 from kinematics import forwardKinematicsT
-from energy import compute_energy_cost
-from constraints import clampQ, checkReach, retime_trajectory_limits
+from energy import computeEnergyCost
+from constraints import clampQ, checkReach, retimeTrajectoryLimits
 
-def main():
-    T = 4.4          # Tmax only
-    N = 60            # geometry resolution (try 60–100)
 
-    jointLimits = list(zip(
-        np.deg2rad([-360, -360, -360, -360, -360, -360]),
-        np.deg2rad([ 360,  360,  360,  360,  360,  360]),
-    ))
+# =============================================================================
+# Configuration
+# =============================================================================
 
-    qStart = np.deg2rad([0, -90, 90, 120, -90, 0])
+tMax = 15.0
+nWaypoints = 80
+
+jointLimits = list(zip(
+    np.deg2rad([-360, -360, -360, -360, -360, -360]),
+    np.deg2rad([ 360,  360,  360,  360,  360,  360]),
+))
+
+qStartDeg = np.array([0, -90, 90, 120, -90, 0], dtype=float)
+
+# -------------CHANGE THIS VECTOR TO TRY NEW TARGETS --------------------------
+goalPose = np.array([-300, 250, 560, 1.0, 1.0, 1.0], dtype=float)
+# -----------------------------------------------------------------------------
+
+ikSettings = dict(
+    smoothw=1e-3,
+    maxIters=200,
+    tol=1e-3,
+    damping=1e-3,
+    stepScale=0.5,
+    wRot=0.001,
+)
+
+vMaxJoint = np.deg2rad(180.0)
+aMaxJoint = np.deg2rad(600.0)
+vMaxTcp = 1000.0
+
+outputJson = Path("trajectory.json")
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+def getStartConfiguration():
+    qStart = np.deg2rad(qStartDeg)
     qStart, _, _ = clampQ(qStart, jointLimits)
+    return qStart
 
-    start = np.hstack([forwardKinematicsT(qStart)[:3, 3], [0, 0, 0]])
-    goal = np.array([-300, 250, 560, 0.75, 0.75, 0.75], float)
-    targets = np.linspace(start, goal, N)
 
-    checkReach(goal[:3])
+def buildStartPose(qStart):
+    pStart = forwardKinematicsT(qStart)[:3, 3]
+    rStart = np.array([0.0, 0.0, 0.0], dtype=float)
+    return np.hstack([pStart, rStart])
 
+
+def buildTargets(startPose, goalPose, nWaypoints):
+    return np.linspace(startPose, goalPose, nWaypoints)
+
+
+def planTrajectory(qStart, targets):
     traj = generateTrajectoryPose(
         qStart,
         targets,
         jointLimits,
-        smoothw=1e-3,
-        maxIters=400,
-        tol=1e-3,
-        damping=1e-3,
-        stepScale=0.5
+        **ikSettings
     )
 
     traj = np.array([clampQ(q, jointLimits)[0] for q in traj])
+    return traj
 
 
-    vmax_joint = np.deg2rad(180.0)
-    
-    vmax_tcp = 1000.0
+def computeFkPoints(traj):
+    return np.array([forwardKinematicsT(q)[:3, 3] for q in traj])
 
-    amax_joint = np.deg2rad(600.0)     # choose a conservative accel limit (300°/s²)
-    # (You can tune this; if it’s too strict, increase to 500°/s²)
 
-    t, dt_seg = retime_trajectory_limits(
+# =============================================================================
+# Diagnostics
+# =============================================================================
+
+def computeDirectionDiagnostic(fkPoints, startPose, goalPose):
+
+    desiredDir = goalPose[:3] - startPose[:3]
+    desiredDir = desiredDir / np.linalg.norm(desiredDir)
+
+    worstDot = 1.0
+    worstSeg = 0
+
+    for i in range(len(fkPoints) - 1):
+
+        dp = fkPoints[i + 1] - fkPoints[i]
+        n = np.linalg.norm(dp)
+
+        if n < 1e-12:
+            continue
+
+        actualDir = dp / n
+        dot = float(np.dot(actualDir, desiredDir))
+
+        if dot < worstDot:
+            worstDot = dot
+            worstSeg = i
+
+    return worstSeg, worstDot
+
+
+def computePositionDiagnostic(traj, targets):
+
+    maxErr = 0.0
+    worstWp = 0
+
+    for i, q in enumerate(traj):
+
+        pFk = forwardKinematicsT(q)[:3, 3]
+        pTarget = targets[i][:3]
+
+        err = float(np.linalg.norm(pTarget - pFk))
+
+        if err > maxErr:
+            maxErr = err
+            worstWp = i
+
+    return worstWp, maxErr
+
+
+def computeJointStepDiagnostic(traj):
+
+    dq = np.diff(traj, axis=0)
+    dqNorm = np.linalg.norm(dq, axis=1)
+
+    worstSeg = int(np.argmax(dqNorm))
+
+    return worstSeg, dqNorm[worstSeg], np.rad2deg(dq[worstSeg])
+
+
+def printDiagnostics(directionDiag, posDiag, jointDiag):
+
+    worstSegDir, worstDot = directionDiag
+    worstWp, maxErr = posDiag
+    worstSegJoint, maxStep, worstDq = jointDiag
+
+    print("\n--- Trajectory Diagnostics ---")
+
+    print("Worst direction segment:", worstSegDir)
+    print("Worst direction dot:", worstDot)
+
+    print("Worst waypoint:", worstWp)
+    print("Max position error:", maxErr)
+
+    print("Largest joint step [rad]:", maxStep)
+    print("Worst segment index:", worstSegJoint)
+    print("Worst dq [deg]:", worstDq)
+
+
+# =============================================================================
+# Retiming + Export
+# =============================================================================
+
+def retimeTrajectory(traj):
+
+    t, dtSeg = retimeTrajectoryLimits(
         traj,
-        Tmax=T,
-        vmax_joint_rad_s=vmax_joint,
-        vmax_tcp_units_s=vmax_tcp,
+        Tmax=tMax,
+        vmax_joint_rad_s=vMaxJoint,
+        vmax_tcp_units_s=vMaxTcp,
         fk_pos_fn=lambda q: forwardKinematicsT(q)[:3, 3],
-        amax_joint_rad_s=amax_joint,
+        amax_joint_rad_s=aMaxJoint,
     )
-    print(f"Retime: Tmin={t[-1]:.4f}s <= Tmax={T:.4f}s")    
+
+    return t, dtSeg
+
+
+def exportTrajectoryJson(traj, t):
 
     trajDeg = np.rad2deg(traj)
 
     waypoints = []
+
     for i, q in enumerate(trajDeg):
         waypoints.append({
             "t": round(float(t[i]), 4),
@@ -70,16 +192,56 @@ def main():
         "waypoints": waypoints
     }
 
-    Path("trajectory.json").write_text(json.dumps(data, indent=2))
-    print("trajectory.json exported successfully")
+    outputJson.write_text(json.dumps(data, indent=2))
+
+    print(f"{outputJson.name} exported successfully")
+
+
+def printFinalReport(traj, goalPose):
+
     Tend = forwardKinematicsT(traj[-1])
-    print("EE xyz:", Tend[:3,3])
-    print("Goal :", goal[:3])
-    print("Error:", goal[:3] - Tend[:3,3])
-    print("Norm :", np.linalg.norm(goal[:3] - Tend[:3,3]))
+    pEnd = Tend[:3, 3]
 
-    compute_energy_cost("trajectory.json")
+    error = goalPose[:3] - pEnd
 
+    print("EE xyz:", pEnd)
+    print("Goal :", goalPose[:3])
+    print("Error:", error)
+    print("Norm :", np.linalg.norm(error))
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+def main():
+
+    qStart = getStartConfiguration()
+    startPose = buildStartPose(qStart)
+
+    checkReach(goalPose[:3])
+
+    targets = buildTargets(startPose, goalPose, nWaypoints)
+
+    traj = planTrajectory(qStart, targets)
+
+    fkPoints = computeFkPoints(traj)
+
+    directionDiag = computeDirectionDiagnostic(fkPoints, startPose, goalPose)
+    posDiag = computePositionDiagnostic(traj, targets)
+    jointDiag = computeJointStepDiagnostic(traj)
+
+    printDiagnostics(directionDiag, posDiag, jointDiag)
+
+    t, dtSeg = retimeTrajectory(traj)
+
+    print(f"Retime: Tmin={t[-1]:.4f}s <= Tmax={tMax:.4f}s")
+
+    exportTrajectoryJson(traj, t)
+
+    printFinalReport(traj, goalPose)
+
+    computeEnergyCost(str(outputJson))
 
 
 if __name__ == "__main__":

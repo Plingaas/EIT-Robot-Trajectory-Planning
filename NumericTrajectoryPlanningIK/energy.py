@@ -1,99 +1,171 @@
 import json
 import numpy as np
 
-def compute_energy_cost(json_file):
+
+# =============================================================================
+# Energy Model Configuration
+# =============================================================================
+
+jointWeights = np.array([3, 6, 5, 1, 0.5, 0.2])
+
+betaAcceleration = 0.01
+
+motionScale = 4.0
+
+idlePower = 120.0
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+def loadTrajectory(jsonFile):
     """
-    Estimate energy consumption of a trajectory.
-
-    Model:
-        E_total = E_motion + E_idle
-
-    where
-        E_motion = a * (J_velocity + beta * J_acceleration)
-        E_idle   = P_idle * T_total
+    Load trajectory data from JSON file.
+    Returns time vector and joint trajectory (rad).
     """
 
-    # -------------------------
-    # 1. Load trajectory
-    # -------------------------
-    with open(json_file, 'r') as f:
+    with open(jsonFile, "r") as f:
         data = json.load(f)
 
     waypoints = data["waypoints"]
     units = data["units"]
 
-    N = len(waypoints)
+    n = len(waypoints)
 
-    t = np.array([waypoints[k]["t"] for k in range(N)], dtype=float)
-    q = np.array([waypoints[k]["q"] for k in range(N)], dtype=float)
+    t = np.array([waypoints[k]["t"] for k in range(n)], dtype=float)
+    q = np.array([waypoints[k]["q"] for k in range(n)], dtype=float)
 
-    # -------------------------
-    # 2. Convert units
-    # -------------------------
     if units.lower() == "deg":
         q = np.deg2rad(q)
 
-    # -------------------------
-    # 3. Time differences
-    # -------------------------
-    dt_seg = np.diff(t)              # (N-1,)
-    dq = np.diff(q, axis=0)          # (N-1,6)
+    return t, q
 
-    # -------------------------
-    # 4. Joint velocities
-    # -------------------------
-    qdot = dq / dt_seg[:, None]      # (N-1,6)
 
-    # -------------------------
-    # 5. Joint accelerations
-    # -------------------------
-    dt_mid = 0.5 * (dt_seg[1:] + dt_seg[:-1])
-    qddot = np.diff(qdot, axis=0) / dt_mid[:, None]
+def computeTimeDifferences(t):
+    """
+    Compute time intervals between waypoints.
+    """
+    return np.diff(t)
 
-    # -------------------------
-    # 6. Joint weights
-    # -------------------------
-    W = np.array([3, 6, 5, 1, 0.5, 0.2])
 
-    beta = 0.01
+def computeJointVelocities(q, dtSeg):
+    """
+    Compute joint velocities qDot.
+    """
+    dq = np.diff(q, axis=0)
+    qDot = dq / dtSeg[:, None]
+    return qDot, dq
 
-    # -------------------------
-    # 7. Velocity effort
-    # -------------------------
-    J_velocity = np.sum((qdot ** 2) * W[None, :] * dt_seg[:, None])
 
-    # -------------------------
-    # 8. Acceleration effort
-    # -------------------------
-    J_acceleration = np.sum((qddot ** 2) * dt_mid[:, None])
+def computeJointAccelerations(qDot, dtSeg):
+    """
+    Compute joint accelerations qDDot.
+    """
+    dtMid = 0.5 * (dtSeg[1:] + dtSeg[:-1])
+    qDDot = np.diff(qDot, axis=0) / dtMid[:, None]
 
-    J_motion = J_velocity + beta * J_acceleration
+    return qDDot, dtMid
 
-    # -------------------------
-    # 9. Convert effort → Joules
-    # -------------------------
-    a = 4.0
 
-    E_motion = a * J_motion
+# =============================================================================
+# Energy Components
+# =============================================================================
 
-    # -------------------------
-    # 10. Idle power model
-    # -------------------------
-    P_idle = 120.0
+def computeVelocityEffort(qDot, dtSeg):
+    """
+    Compute velocity-based effort cost.
+    """
 
-    T_total = t[-1] - t[0]
+    return np.sum((qDot ** 2) * jointWeights[None, :] * dtSeg[:, None])
 
-    E_idle = P_idle * T_total
 
-    # -------------------------
-    # 11. Total energy
-    # -------------------------
-    E_total = E_motion + E_idle
+def computeAccelerationEffort(qDDot, dtMid):
+    """
+    Compute acceleration-based effort cost.
+    """
+
+    return np.sum((qDDot ** 2) * dtMid[:, None])
+
+
+def computeMotionEnergy(qDot, qDDot, dtSeg, dtMid):
+    """
+    Compute motion energy from velocity and acceleration effort.
+    """
+
+    jVelocity = computeVelocityEffort(qDot, dtSeg)
+    jAcceleration = computeAccelerationEffort(qDDot, dtMid)
+
+    jMotion = jVelocity + betaAcceleration * jAcceleration
+
+    eMotion = motionScale * jMotion
+
+    return jMotion, eMotion
+
+
+def computeIdleEnergy(t):
+    """
+    Compute idle energy consumption.
+    """
+
+    tTotal = t[-1] - t[0]
+
+    eIdle = idlePower * tTotal
+
+    return tTotal, eIdle
+
+
+# =============================================================================
+# Reporting
+# =============================================================================
+
+def printEnergyReport(jMotion, eMotion, eIdle, eTotal):
 
     print("----- Energy Breakdown -----")
-    print(f"Motion effort      : {J_motion:.3f}")
-    print(f"Motion energy (J)  : {E_motion:.3f}")
-    print(f"Idle energy (J)    : {E_idle:.3f}")
-    print(f"Total energy (J)   : {E_total:.3f}")
+    print(f"Motion effort      : {jMotion:.3f}")
+    print(f"Motion energy (J)  : {eMotion:.3f}")
+    print(f"Idle energy (J)    : {eIdle:.3f}")
+    print(f"Total energy (J)   : {eTotal:.3f}")
 
-    return E_total
+
+# =============================================================================
+# Main API
+# =============================================================================
+
+def computeEnergyCost(jsonFile):
+    """
+    Estimate energy consumption of a trajectory.
+
+    Model
+    -----
+    E_total = E_motion + E_idle
+
+    E_motion = a * (J_velocity + beta * J_acceleration)
+    E_idle   = P_idle * T_total
+    """
+
+    # Load trajectory
+    t, q = loadTrajectory(jsonFile)
+
+    # Time intervals
+    dtSeg = computeTimeDifferences(t)
+
+    # Joint velocities
+    qDot, dq = computeJointVelocities(q, dtSeg)
+
+    # Joint accelerations
+    qDDot, dtMid = computeJointAccelerations(qDot, dtSeg)
+
+    # Motion energy
+    jMotion, eMotion = computeMotionEnergy(qDot, qDDot, dtSeg, dtMid)
+
+    # Idle energy
+    tTotal, eIdle = computeIdleEnergy(t)
+
+    # Total energy
+    eTotal = eMotion + eIdle
+
+    # Report
+    printEnergyReport(jMotion, eMotion, eIdle, eTotal)
+
+    return eTotal

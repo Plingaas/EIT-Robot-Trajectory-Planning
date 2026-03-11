@@ -55,7 +55,7 @@ def build_frame_sequence(
 def main() -> None:
     robot = UR5e()
     viewer = Viewer(window_name="UR5 Trajectory Player", world_frame_size=300.0)
-    viewer.add_robot(robot, show_frames=True, frame_size=100)
+    viewer.add_robot(robot, show_frames=False, frame_size=100)
     viewer.add_trace("end_effector")
 
     home_frames = robot.home_frames()

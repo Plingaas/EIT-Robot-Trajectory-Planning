@@ -2,126 +2,400 @@ import numpy as np
 from kinematics import forwardKinematicsT
 from constraints import clampQ
 
+
+# =============================================================================
+# Rotation Helpers
+# =============================================================================
+
 def vectorToR(rv):
-    rv = np.asarray(rv, float).reshape(3)
-    th = np.linalg.norm(rv)
-    if th < 1e-12:
+    """
+    Convert a 3D rotation vector (axis * angle) into a 3x3 rotation matrix.
+    """
+    rv = np.asarray(rv, dtype=float).reshape(3)
+    theta = np.linalg.norm(rv)
+
+    if theta < 1e-12:
         return np.eye(3)
-    k = rv / th
-    K = np.array([[0, -k[2], k[1]],
-                  [k[2], 0, -k[0]],
-                  [-k[1], k[0], 0]])
-    return np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
 
-def RToVector(R):
-    R = np.asarray(R, float).reshape(3, 3)
+    k = rv / theta
+
+    K = np.array([
+        [0.0, -k[2],  k[1]],
+        [k[2], 0.0, -k[0]],
+        [-k[1], k[0], 0.0],
+    ])
+
+    return np.eye(3) + np.sin(theta) * K + (1.0 - np.cos(theta)) * (K @ K)
+
+
+def rToVector(R):
+    """
+    Convert a 3x3 rotation matrix into a rotation vector.
+    """
+    R = np.asarray(R, dtype=float).reshape(3, 3)
+
     c = np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0)
-    th = np.arccos(c)
-    if th < 1e-12:
-        return np.zeros(3)
-    w = np.array([R[2,1] - R[1,2],
-                  R[0,2] - R[2,0],
-                  R[1,0] - R[0,1]]) / (2.0 * np.sin(th))
-    return th * w
+    theta = np.arccos(c)
 
-def poseError(q, targets, wPos=1.0, wRot=0.005):
-    targets = np.asarray(targets, float).reshape(6)
+    if theta < 1e-10:
+        return np.zeros(3)
+
+    if np.pi - theta > 1e-6:
+        w = np.array([
+            R[2, 1] - R[1, 2],
+            R[0, 2] - R[2, 0],
+            R[1, 0] - R[0, 1],
+        ]) / (2.0 * np.sin(theta))
+
+        return theta * w
+
+    A = (R + np.eye(3)) / 2.0
+    axis = np.zeros(3)
+
+    axis[0] = np.sqrt(max(A[0, 0], 0.0))
+    axis[1] = np.sqrt(max(A[1, 1], 0.0))
+    axis[2] = np.sqrt(max(A[2, 2], 0.0))
+
+    if axis[0] > 1e-8:
+        axis[1] = np.copysign(axis[1], R[0, 1] + R[1, 0])
+        axis[2] = np.copysign(axis[2], R[0, 2] + R[2, 0])
+    elif axis[1] > 1e-8:
+        axis[2] = np.copysign(axis[2], R[1, 2] + R[2, 1])
+
+    n = np.linalg.norm(axis)
+
+    if n < 1e-10:
+        return theta * np.array([1.0, 0.0, 0.0])
+
+    axis /= n
+    return theta * axis
+
+
+# =============================================================================
+# Pose Error
+# =============================================================================
+
+def poseError(q, targets, wPos=1.0, wRot=0.001):
+    """
+    Compute the weighted 6D pose error for IK.
+    """
+    targets = np.asarray(targets, dtype=float).reshape(6)
+
     T = forwardKinematicsT(q)
-    pCur, RCur = T[:3, 3], T[:3, :3]
+    pCur = T[:3, 3]
+    rCur = T[:3, :3]
+
     pDes = targets[:3]
-    RDes = vectorToR(targets[3:])
-    ePos = (pDes - pCur)
-    eRot = RToVector(RDes @ RCur.T)
+    rDes = vectorToR(targets[3:])
+
+    ePos = pDes - pCur
+    eRot = rToVector(rDes @ rCur.T)
+
     return np.hstack([wPos * ePos, wRot * eRot])
 
-def Jacobianfd(q, targets, eps=1e-6):
-    q = np.asarray(q, float)
+
+# =============================================================================
+# Numerical Jacobian
+# =============================================================================
+
+def jacobianFd(q, targets, h=1e-5, wPos=1.0, wRot=0.001):
+    """
+    Compute the weighted pose-error Jacobian using central finite differences.
+    """
+    q = np.asarray(q, dtype=float)
     n = q.size
+
     J = np.zeros((6, n))
-    e0 = poseError(q, targets)
+
     for i in range(n):
-        dq = np.zeros(n); dq[i] = eps
-        J[:, i] = (poseError(q + dq, targets) - e0) / eps
+        step = h * max(1.0, abs(q[i]))
+
+        dq = np.zeros(n)
+        dq[i] = step
+
+        ePlus = poseError(q + dq, targets, wPos=wPos, wRot=wRot)
+        eMinus = poseError(q - dq, targets, wPos=wPos, wRot=wRot)
+
+        J[:, i] = (ePlus - eMinus) / (2.0 * step)
+
     return J
 
-def solvePoseIK(qInit, targets, jointLimits, qPrev=None,
-                maxIters=200, tol=1e-4, damping=1e-3, smoothw=1e-2, stepScale=1.0,
-                sing_gain=1e-3, sing_eps=1e-6, maxStepRad=0.25):
-    q = np.asarray(qInit, float).copy()
-    qPrev = q.copy() if qPrev is None else np.asarray(qPrev, float).copy()
-    n = q.size
 
-    for _ in range(maxIters):
-        e = poseError(q, targets)
-        if np.linalg.norm(e) < tol:
-            break
+# =============================================================================
+# IK Step Helpers
+# =============================================================================
 
-        J = Jacobianfd(q, targets)
+def dampedSvdStep(J, e, q, qPrev, lam, smoothw):
+    """
+    Compute one damped least-squares IK step using SVD.
+    """
+    U, s, Vt = np.linalg.svd(J, full_matrices=False)
 
-        # singularity-aware adaptive damping
-        s = np.linalg.svd(J, compute_uv=False)
-        sigma_min = float(np.min(s))
-        damping_sing = sing_gain / (sigma_min**2 + sing_eps)
+    filt = s / (s**2 + lam**2)
 
-        A = J.T @ J + (damping + damping_sing + smoothw) * np.eye(n)
-        b = -(J.T @ e) - smoothw * (q - qPrev)
+    dqTask = -Vt.T @ (filt * (U.T @ e))
+    dqSmooth = -smoothw * (q - qPrev)
 
-        dq_step = stepScale * np.linalg.solve(A, b)
+    dq = dqTask + dqSmooth
 
-        # limit step magnitude to avoid IK branch jumps
-        step_norm = float(np.linalg.norm(dq_step))
-        if step_norm > maxStepRad:
-            dq_step *= (maxStepRad / step_norm)
+    return dq, s
 
-        q = q + dq_step
-        q, _, _ = clampQ(q, jointLimits)
 
-    return q
+def adaptiveDamping(sigmaMin, baseDamping, sigmaThresh, singGain):
+    """
+    Compute adaptive damping from the smallest singular value.
+    """
+    if sigmaMin < sigmaThresh:
+        t = 1.0 - (sigmaMin / sigmaThresh)
+        return baseDamping + singGain * (t * t)
 
-def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **IKKwargs):
-    targets = np.asarray(targets, float)
-    N = targets.shape[0]
-    traj = np.zeros((N, 6))
+    return baseDamping
 
-    q = np.asarray(qStart, float).copy()
+
+# =============================================================================
+# Main IK Solver
+# =============================================================================
+
+def solvePoseIk(
+    qInit,
+    targets,
+    jointLimits,
+    qPrev=None,
+    maxIters=80,
+    tol=1e-4,
+    damping=1e-3,
+    smoothw=1e-2,
+    stepScale=1.0,
+    singGain=5e-2,
+    sigmaThresh=5e-2,
+    maxStepRad=0.15,
+    fdStep=1e-5,
+    wPos=1.0,
+    wRot=0.001,
+    minStepTol=1e-8,
+    minImproveTol=1e-8,
+    stallIters=6,
+    returnInfo=False,
+):
+    """
+    Solve a single pose IK problem numerically.
+    """
+    q = np.asarray(qInit, dtype=float).copy()
+    qPrev = q.copy() if qPrev is None else np.asarray(qPrev, dtype=float).copy()
+
+    q, _, _ = clampQ(q, jointLimits)
+
+    info = {
+        "converged": False,
+        "status": "maxIters",
+        "iterations": 0,
+        "finalError": None,
+        "sigmaMin": None,
+        "acceptedSteps": 0,
+        "rejectedSteps": 0,
+    }
+
+    stallCount = 0
+    prevErr = np.inf
+
+    for it in range(maxIters):
+        e = poseError(q, targets, wPos=wPos, wRot=wRot)
+        err = float(np.linalg.norm(e))
+
+        if err < tol:
+            info["converged"] = True
+            info["status"] = "converged"
+            info["iterations"] = it
+            info["finalError"] = err
+            return (q, info) if returnInfo else q
+
+        J = jacobianFd(q, targets, h=fdStep, wPos=wPos, wRot=wRot)
+
+        sVals = np.linalg.svd(J, compute_uv=False)
+        sigmaMin = float(np.min(sVals))
+        info["sigmaMin"] = sigmaMin
+
+        lam = adaptiveDamping(
+            sigmaMin=sigmaMin,
+            baseDamping=damping,
+            sigmaThresh=sigmaThresh,
+            singGain=singGain,
+        )
+
+        accepted = False
+        bestQ = q
+        bestErr = err
+        bestStepNorm = 0.0
+
+        for _retry in range(8):
+            dq, s = dampedSvdStep(J, e, q, qPrev, lam=lam, smoothw=smoothw)
+            dq *= stepScale
+
+            stepNorm = float(np.linalg.norm(dq))
+            if stepNorm > maxStepRad:
+                dq *= (maxStepRad / stepNorm)
+                stepNorm = maxStepRad
+
+            qTry = q + dq
+            qTry, _, _ = clampQ(qTry, jointLimits)
+
+            eTry = poseError(qTry, targets, wPos=wPos, wRot=wRot)
+            errTry = float(np.linalg.norm(eTry))
+
+            if errTry < err:
+                accepted = True
+                bestQ = qTry
+                bestErr = errTry
+                bestStepNorm = stepNorm
+                info["acceptedSteps"] += 1
+                break
+
+            lam *= 3.0
+            info["rejectedSteps"] += 1
+
+        if not accepted:
+            info["iterations"] = it + 1
+            info["finalError"] = err
+            info["status"] = "stalledRejectedSteps"
+            return (q, info) if returnInfo else q
+
+        q = bestQ
+
+        if bestStepNorm < minStepTol:
+            info["iterations"] = it + 1
+            info["finalError"] = bestErr
+            info["status"] = "stalledSmallStep"
+            return (q, info) if returnInfo else q
+
+        improve = prevErr - bestErr
+        if improve < minImproveTol:
+            stallCount += 1
+        else:
+            stallCount = 0
+
+        if stallCount >= stallIters:
+            info["iterations"] = it + 1
+            info["finalError"] = bestErr
+            info["status"] = "stalledLowImprovement"
+            return (q, info) if returnInfo else q
+
+        prevErr = bestErr
+
+    finalE = poseError(q, targets, wPos=wPos, wRot=wRot)
+
+    info["iterations"] = maxIters
+    info["finalError"] = float(np.linalg.norm(finalE))
+    info["status"] = "maxIters"
+
+    return (q, info) if returnInfo else q
+
+
+# =============================================================================
+# Trajectory Generation
+# =============================================================================
+
+def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwargs):
+    """
+    Solve IK for a sequence of pose targets and return a joint trajectory.
+    """
+    targets = np.asarray(targets, dtype=float)
+
+    q = np.asarray(qStart, dtype=float).copy()
+    q, _, _ = clampQ(q, jointLimits)
+
+    nTargets = targets.shape[0]
+    nJoints = q.size
+
+    traj = np.zeros((nTargets, nJoints))
+
     qPrev = q.copy()
 
-    for i in range(N):
-        if i == 0 or i == N - 1 or i % max(1, N // 20) == 0:
-            pct = 100.0 * i / (N - 1 if N > 1 else 1)
-            print(f"\rIK progress: {i+1}/{N} ({pct:5.1f}%)", end="", flush=True)
+    fallbackErrThreshold = ikKwargs.pop("fallbackErrThreshold", 5e-3)
+    continuityWeight = ikKwargs.pop("continuityWeight", 0.01)
 
-        # --- NEW: multi-seed IK to avoid branch flips ---
-        seeds = [
+    for i in range(nTargets):
+        if i == 0 or i == nTargets - 1 or i % max(1, nTargets // 20) == 0:
+            pct = 100.0 * i / (nTargets - 1 if nTargets > 1 else 1)
+            print(f"\rIK progress: {i+1}/{nTargets} ({pct:5.1f}%)", end="", flush=True)
+
+        qMain, infoMain = solvePoseIk(
             qPrev,
-            qPrev + np.array([0.05, 0, 0, 0, 0, 0]),
-            qPrev - np.array([0.05, 0, 0, 0, 0, 0]),
-            qPrev + np.array([0, 0.05, 0, 0, 0, 0]),
-            qPrev - np.array([0, 0.05, 0, 0, 0, 0]),
-        ]
-        
-        best_q = None
-        best_score = np.inf
-        
-        for s in seeds:
-            s, _, _ = clampQ(s, jointLimits)
-            q_try = solvePoseIK(s, targets[i], jointLimits, qPrev=qPrev, smoothw=smoothw, **IKKwargs)
-            e_try = poseError(q_try, targets[i])
-            # score = pose error + continuity penalty (prefers staying close to previous)
-            score = np.linalg.norm(e_try) + 0.01 * np.linalg.norm(q_try - qPrev)
-            if score < best_score:
-                best_score = score
-                best_q = q_try
-        
-        q = best_q
+            targets[i],
+            jointLimits,
+            qPrev=qPrev,
+            smoothw=smoothw,
+            returnInfo=True,
+            **ikKwargs,
+        )
+
+        eMain = poseError(
+            qMain,
+            targets[i],
+            wPos=ikKwargs.get("wPos", 1.0),
+            wRot=ikKwargs.get("wRot", 0.001),
+        )
+        errMain = float(np.linalg.norm(eMain))
+
+        bestQ = qMain
+        bestScore = errMain + continuityWeight * np.linalg.norm(qMain - qPrev)
+
+        goodEnough = infoMain["converged"] or (errMain < fallbackErrThreshold)
+
+        if not goodEnough:
+            seedOffsets = [
+                np.array([+0.05 if j == 0 else 0.0 for j in range(nJoints)]),
+                np.array([-0.05 if j == 0 else 0.0 for j in range(nJoints)]),
+                np.array([+0.05 if j == 1 else 0.0 for j in range(nJoints)]) if nJoints > 1 else np.zeros(nJoints),
+                np.array([-0.05 if j == 1 else 0.0 for j in range(nJoints)]) if nJoints > 1 else np.zeros(nJoints),
+            ]
+
+            for off in seedOffsets:
+                s = qPrev + off
+                s, _, _ = clampQ(s, jointLimits)
+
+                qTry, infoTry = solvePoseIk(
+                    s,
+                    targets[i],
+                    jointLimits,
+                    qPrev=qPrev,
+                    smoothw=smoothw,
+                    returnInfo=True,
+                    **ikKwargs,
+                )
+
+                eTry = poseError(
+                    qTry,
+                    targets[i],
+                    wPos=ikKwargs.get("wPos", 1.0),
+                    wRot=ikKwargs.get("wRot", 0.001),
+                )
+                errTry = float(np.linalg.norm(eTry))
+
+                score = errTry + continuityWeight * np.linalg.norm(qTry - qPrev)
+
+                if score < bestScore:
+                    bestScore = score
+                    bestQ = qTry
+
+        q = bestQ
         traj[i] = q
         qPrev = q
 
     print()
     return traj
 
-def singularity_cost(q, targets, eps=1e-6):
-    J = Jacobianfd(q, targets)
+
+# =============================================================================
+# Singularity Metric
+# =============================================================================
+
+def singularityCost(q, targets, h=1e-5, wPos=1.0, wRot=0.001, eps=1e-8):
+    """
+    Compute a simple singularity cost from the smallest singular value of the
+    weighted numerical Jacobian.
+    """
+    J = jacobianFd(q, targets, h=h, wPos=wPos, wRot=wRot)
     s = np.linalg.svd(J, compute_uv=False)
-    sigma_min = float(np.min(s))
-    return 1.0 / (sigma_min**2 + eps)
+    sigmaMin = float(np.min(s))
+
+    return 1.0 / (sigmaMin**2 + eps)
