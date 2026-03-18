@@ -1,5 +1,7 @@
 import numpy as np
 
+from core.spatial import spatial_inertia
+
 omega_1 = np.array([0, 0, 1], dtype=float)
 omega_2 = np.array([0, 1, 0], dtype=float)
 omega_3 = np.array([0, 1, 0], dtype=float)
@@ -104,3 +106,15 @@ END_EFFECTOR_INERTIA = np.array([
     [-0.114,   5.024e5,   0.134],
     [-229.651, 0.134,     5.023e5]
 ], dtype=float)
+
+# TODO; units
+
+G_MOUNT = spatial_inertia(MOUNT_MASS, MOUNT_COM, MOUNT_INERTIA) # Dont think I need this
+G_BASE = spatial_inertia(BASE_MASS, BASE_COM, BASE_INERTIA)
+G_SHOULDER = spatial_inertia(SHOULDER_MASS, SHOULDER_COM, SHOULDER_INERTIA)
+G_ELBOW = spatial_inertia(ELBOW_MASS, ELBOW_COM, ELBOW_INERTIA)
+G_FOREARM = spatial_inertia(FOREARM_MASS, FOREARM_COM, FOREARM_INERTIA)
+G_WRIST = spatial_inertia(WRIST_MASS, WRIST_COM, WRIST_INERTIA)
+G_END_EFFECTOR = spatial_inertia(END_EFFECTOR_MASS, END_EFFECTOR_COM, END_EFFECTOR_INERTIA)
+
+G_LIST = (G_BASE, G_SHOULDER, G_ELBOW, G_FOREARM, G_WRIST, G_END_EFFECTOR)
