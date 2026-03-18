@@ -6,13 +6,13 @@ import numpy as np
 # Energy Model Configuration
 # =============================================================================
 
-jointWeights = np.array([3, 6, 5, 1, 0.5, 0.2])
+jointWeights = np.array([3.0, 6.0, 5.0, 1.0, 0.5, 0.2], dtype=float)
 
-betaAcceleration = 0.01
-
-motionScale = 4.0
-
+# Fitted coefficients
 idlePower = 120.0
+cAcceleration = 1.0
+cVelocity = 1.0
+cHold = 1.0
 
 
 # =============================================================================
@@ -20,152 +20,163 @@ idlePower = 120.0
 # =============================================================================
 
 def loadTrajectory(jsonFile):
-    """
-    Load trajectory data from JSON file.
-    Returns time vector and joint trajectory (rad).
-    """
-
     with open(jsonFile, "r") as f:
         data = json.load(f)
 
     waypoints = data["waypoints"]
-    units = data["units"]
+    units = data.get("units", "deg")
 
-    n = len(waypoints)
-
-    t = np.array([waypoints[k]["t"] for k in range(n)], dtype=float)
-    q = np.array([waypoints[k]["q"] for k in range(n)], dtype=float)
+    t = np.array([wp["t"] for wp in waypoints], dtype=float)
+    q = np.array([wp["q"] for wp in waypoints], dtype=float)
 
     if units.lower() == "deg":
         q = np.deg2rad(q)
+    elif units.lower() != "rad":
+        raise ValueError(f"Unsupported units '{units}'")
+
+    if len(t) < 2:
+        raise ValueError("Need at least 2 waypoints.")
+    if np.any(np.diff(t) <= 0.0):
+        raise ValueError("Waypoint times must be strictly increasing.")
 
     return t, q
 
 
 def computeTimeDifferences(t):
-    """
-    Compute time intervals between waypoints.
-    """
     return np.diff(t)
 
 
 def computeJointVelocities(q, dtSeg):
-    """
-    Compute joint velocities qDot.
-    """
     dq = np.diff(q, axis=0)
     qDot = dq / dtSeg[:, None]
-    return qDot, dq
+    return qDot
 
 
 def computeJointAccelerations(qDot, dtSeg):
-    """
-    Compute joint accelerations qDDot.
-    """
-    dtMid = 0.5 * (dtSeg[1:] + dtSeg[:-1])
-    qDDot = np.diff(qDot, axis=0) / dtMid[:, None]
+    if len(dtSeg) < 2:
+        return np.zeros((len(dtSeg), qDot.shape[1]))
 
-    return qDDot, dtMid
+    dtMid = 0.5 * (dtSeg[:-1] + dtSeg[1:])
+    qDDotMid = np.diff(qDot, axis=0) / dtMid[:, None]
+
+    # align back to segments
+    qDDot = np.zeros_like(qDot)
+    qDDot[0] = qDDotMid[0]
+    qDDot[-1] = qDDotMid[-1]
+    if len(qDot) > 2:
+        qDDot[1:-1] = 0.5 * (qDDotMid[:-1] + qDDotMid[1:])
+    return qDDot
+
+
+# =============================================================================
+# Feature Extraction
+# =============================================================================
+
+def computeTrajectoryFeatures(jsonFile):
+    t, q = loadTrajectory(jsonFile)
+    dtSeg = computeTimeDifferences(t)
+    qDot = computeJointVelocities(q, dtSeg)
+    qDDot = computeJointAccelerations(qDot, dtSeg)
+
+    weightedAbsVel = jointWeights[None, :] * np.abs(qDot)
+    weightedVel2 = jointWeights[None, :] * (qDot ** 2)
+    weightedAccVel = jointWeights[None, :] * np.abs(qDDot) * np.abs(qDot)
+
+    A = float(np.sum(np.sum(weightedAccVel, axis=1) * dtSeg))
+    V = float(np.sum(np.sum(weightedVel2, axis=1) * dtSeg))
+    H = float(np.sum(np.sum(weightedAbsVel, axis=1) * dtSeg))
+    T = float(t[-1] - t[0])
+
+    return {
+        "duration": T,
+        "A": A,
+        "V": V,
+        "H": H,
+    }
 
 
 # =============================================================================
 # Energy Components
 # =============================================================================
 
-def computeVelocityEffort(qDot, dtSeg):
-    """
-    Compute velocity-based effort cost.
-    """
+def computePredictedEnergyFromFeatures(features, coeffs=None):
+    if coeffs is None:
+        coeffs = {
+            "idlePower": idlePower,
+            "cAcceleration": cAcceleration,
+            "cVelocity": cVelocity,
+            "cHold": cHold,
+        }
 
-    return np.sum((qDot ** 2) * jointWeights[None, :] * dtSeg[:, None])
+    T = features["duration"]
+    A = features["A"]
+    V = features["V"]
+    H = features["H"]
 
+    eIdle = coeffs["idlePower"] * T
+    eMotion = (
+        coeffs["cAcceleration"] * A
+        + coeffs["cVelocity"] * V
+        + coeffs["cHold"] * H
+    )
+    eTotal = eIdle + eMotion
 
-def computeAccelerationEffort(qDDot, dtMid):
-    """
-    Compute acceleration-based effort cost.
-    """
-
-    return np.sum((qDDot ** 2) * dtMid[:, None])
-
-
-def computeMotionEnergy(qDot, qDDot, dtSeg, dtMid):
-    """
-    Compute motion energy from velocity and acceleration effort.
-    """
-
-    jVelocity = computeVelocityEffort(qDot, dtSeg)
-    jAcceleration = computeAccelerationEffort(qDDot, dtMid)
-
-    jMotion = jVelocity + betaAcceleration * jAcceleration
-
-    eMotion = motionScale * jMotion
-
-    return jMotion, eMotion
+    return {
+        "eIdle": eIdle,
+        "eMotion": eMotion,
+        "eTotal": eTotal,
+    }
 
 
-def computeIdleEnergy(t):
-    """
-    Compute idle energy consumption.
-    """
-
-    tTotal = t[-1] - t[0]
-
-    eIdle = idlePower * tTotal
-
-    return tTotal, eIdle
-
-
-# =============================================================================
-# Reporting
-# =============================================================================
-
-def printEnergyReport(jMotion, eMotion, eIdle, eTotal):
+def computeEnergyCost(jsonFile, coeffs=None):
+    features = computeTrajectoryFeatures(jsonFile)
+    energies = computePredictedEnergyFromFeatures(features, coeffs)
 
     print("----- Energy Breakdown -----")
-    print(f"Motion effort      : {jMotion:.3f}")
-    print(f"Motion energy (J)  : {eMotion:.3f}")
-    print(f"Idle energy (J)    : {eIdle:.3f}")
-    print(f"Total energy (J)   : {eTotal:.3f}")
+    print(f"Trajectory duration        : {features['duration']:.3f} s")
+    print(f"Acceleration feature A     : {features['A']:.6f}")
+    print(f"Velocity feature V         : {features['V']:.6f}")
+    print(f"Hold feature H             : {features['H']:.6f}")
+    print(f"Motion energy              : {energies['eMotion']:.6f}")
+    print(f"Idle energy                : {energies['eIdle']:.6f}")
+    print(f"Total energy               : {energies['eTotal']:.6f}")
+
+    return energies["eTotal"]
 
 
 # =============================================================================
-# Main API
+# Calibration
 # =============================================================================
 
-def computeEnergyCost(jsonFile):
+def fitModelCoefficients(samples):
     """
-    Estimate energy consumption of a trajectory.
-
-    Model
-    -----
-    E_total = E_motion + E_idle
-
-    E_motion = a * (J_velocity + beta * J_acceleration)
-    E_idle   = P_idle * T_total
+    samples: list of dicts like
+        {
+            "trajectory": "traj1.json",
+            "energy_j": 812.3
+        }
     """
+    X = []
+    y = []
 
-    # Load trajectory
-    t, q = loadTrajectory(jsonFile)
+    for sample in samples:
+        features = computeTrajectoryFeatures(sample["trajectory"])
+        X.append([
+            features["duration"],
+            features["A"],
+            features["V"],
+            features["H"],
+        ])
+        y.append(float(sample["energy_j"]))
 
-    # Time intervals
-    dtSeg = computeTimeDifferences(t)
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=float)
 
-    # Joint velocities
-    qDot, dq = computeJointVelocities(q, dtSeg)
+    coeffs, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
 
-    # Joint accelerations
-    qDDot, dtMid = computeJointAccelerations(qDot, dtSeg)
-
-    # Motion energy
-    jMotion, eMotion = computeMotionEnergy(qDot, qDDot, dtSeg, dtMid)
-
-    # Idle energy
-    tTotal, eIdle = computeIdleEnergy(t)
-
-    # Total energy
-    eTotal = eMotion + eIdle
-
-    # Report
-    printEnergyReport(jMotion, eMotion, eIdle, eTotal)
-
-    return eTotal
+    return {
+        "idlePower": coeffs[0],
+        "cAcceleration": coeffs[1],
+        "cVelocity": coeffs[2],
+        "cHold": coeffs[3],
+    }

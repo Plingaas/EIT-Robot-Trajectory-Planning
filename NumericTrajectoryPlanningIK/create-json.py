@@ -23,8 +23,8 @@ jointLimits = list(zip(
 
 qStartDeg = np.array([0, -90, 90, 120, -90, 0], dtype=float)
 
-# -------------CHANGE THIS VECTOR TO TRY NEW TARGETS --------------------------
-goalPose = np.array([-300, 250, 560, 1.0, 1.0, 1.0], dtype=float)
+# ----CHANGE THIS VECTOR TO TRY NEW TARGETS (xAng, yAng, zAng, xDir, yDir, zDir) -------
+goalPose = np.array([-600, 250, 560, 1.0, 1.0, 1.0], dtype=float)
 # -----------------------------------------------------------------------------
 
 ikSettings = dict(
