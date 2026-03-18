@@ -33,18 +33,74 @@ s6 = np.hstack((omega_6, v6))
 
 S = np.column_stack((s1, s2, s3, s4, s5, s6)) # This is the screw axes matrix in the space frame
 
-r = np.array([
-    [0 , 1, 0], 
-    [-1, 0, 0], 
-    [0 , 0, 1]
+MOUNT_HOME_FRAME = np.array([
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
-p = np.array([0, -232.9, 1079.4], dtype=float)
+BASE_HOME_FRAME = np.array([
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 162.5],
+    [0.0, 0.0, 0.0, 1.0],
+], dtype=float)
 
-M = np.eye(4, dtype=float)
-M[:3, :3] = r
-M[:3, 3] = p # This is the home configuration of the end-effector frame in the space frame
+SHOULDER_HOME_FRAME = np.array([
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, -137.8],
+    [0.0, 0.0, 1.0, 162.5],
+    [0.0, 0.0, 0.0, 1.0],
+], dtype=float)
 
+ELBOW_HOME_FRAME = np.array([
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, -6.0],
+    [0.0, 0.0, 1.0, 587.5],
+    [0.0, 0.0, 0.0, 1.0],
+], dtype=float)
+
+FOREARM_HOME_FRAME = np.array([
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, -133.3],
+    [0.0, 0.0, 1.0, 979.7],
+    [0.0, 0.0, 0.0, 1.0],
+], dtype=float)
+
+WRIST_HOME_FRAME = np.array([
+    [0.0, 1.0, 0.0, 0.0],
+    [-1.0, 0.0, 0.0, -133.3],
+    [0.0, 0.0, 1.0, 1079.4],
+    [0.0, 0.0, 0.0, 1.0],
+], dtype=float)
+
+END_EFFECTOR_HOME_FRAME = np.array([
+    [0.0, 1.0, 0.0, 0.0],
+    [-1.0, 0.0, 0.0, -232.9],
+    [0.0, 0.0, 1.0, 1079.4],
+    [0.0, 0.0, 0.0, 1.0],
+], dtype=float)
+
+HOME_FRAMES = {
+    "mount": MOUNT_HOME_FRAME,
+    "base": BASE_HOME_FRAME,
+    "shoulder": SHOULDER_HOME_FRAME,
+    "elbow": ELBOW_HOME_FRAME,
+    "forearm": FOREARM_HOME_FRAME,
+    "wrist": WRIST_HOME_FRAME,
+    "end_effector": END_EFFECTOR_HOME_FRAME,
+}
+
+M_LIST = (
+    MOUNT_HOME_FRAME,
+    BASE_HOME_FRAME,
+    SHOULDER_HOME_FRAME,
+    ELBOW_HOME_FRAME,
+    FOREARM_HOME_FRAME,
+    WRIST_HOME_FRAME,
+    END_EFFECTOR_HOME_FRAME,
+)
 
 # These are mass in g
 MOUNT_MASS = 1392.0
@@ -117,4 +173,4 @@ G_FOREARM = spatial_inertia(FOREARM_MASS, FOREARM_COM, FOREARM_INERTIA)
 G_WRIST = spatial_inertia(WRIST_MASS, WRIST_COM, WRIST_INERTIA)
 G_END_EFFECTOR = spatial_inertia(END_EFFECTOR_MASS, END_EFFECTOR_COM, END_EFFECTOR_INERTIA)
 
-G_LIST = (G_BASE, G_SHOULDER, G_ELBOW, G_FOREARM, G_WRIST, G_END_EFFECTOR)
+G_list = (G_BASE, G_SHOULDER, G_ELBOW, G_FOREARM, G_WRIST, G_END_EFFECTOR)

@@ -1,9 +1,8 @@
 import numpy as np
 
 from core.kinematics.fk import fk_links
-from robot.ur5e_parameters import S
-from robot.ur5e_home_poses import LINK_ORDER
-from visual.ur5e_model import UR5e
+from robot.ur5e_parameters import M_LIST, S
+from visual.ur5e_model import LINK_ORDER, UR5e
 from visual.viewer import FrameSequence, Viewer
 
 
@@ -89,10 +88,7 @@ if __name__ == "__main__":
     viewer.add_robot(robot)
     viewer.add_trace("end_effector")
 
-    home_frames = robot.home_frames()
-    home_frame_list = [home_frames[name] for name in LINK_ORDER]
-
     q_path = build_sway_path(num_cycles=6, steps_per_cycle=90)
-    sequence = build_frame_sequence(home_frame_list, q_path, dt=0.1)
+    sequence = build_frame_sequence(M_LIST, q_path, dt=0.1)
 
     viewer.run_sequence(sequence=sequence, loop=True)
