@@ -14,26 +14,33 @@ from constraints import clampQ, checkReach, retimeTrajectoryLimits
 # =============================================================================
 
 tMax = 15.0
-nWaypoints = 80
+nWaypoints = 25
 
 jointLimits = list(zip(
     np.deg2rad([-360, -360, -360, -360, -360, -360]),
     np.deg2rad([ 360,  360,  360,  360,  360,  360]),
 ))
 
-qStartDeg = np.array([0, -90, 90, 120, -90, 0], dtype=float)
+qStartDeg = np.array([0, 0, 90, -90, 0, 0], dtype=float)
 
 # ----CHANGE THIS VECTOR TO TRY NEW TARGETS (xAng, yAng, zAng, xDir, yDir, zDir) -------
-goalPose = np.array([-600, 250, 560, 1.0, 1.0, 1.0], dtype=float)
+goalPose = np.array([-400, 400, 300, 0.0, 0.5, 1.0], dtype=float)
 # -----------------------------------------------------------------------------
+
+usePowerOptimization = True
+powerOptimizationWeight = 1e-3
+powerOptimizationStepDt = 1.0
 
 ikSettings = dict(
     smoothw=1e-3,
-    maxIters=200,
+    maxIters=60,
     tol=1e-3,
     damping=1e-3,
     stepScale=0.5,
     wRot=0.001,
+    usePowerOptimization=usePowerOptimization,
+    energyWeight=powerOptimizationWeight,
+    stepDt=powerOptimizationStepDt,
 )
 
 vMaxJoint = np.deg2rad(180.0)
@@ -216,6 +223,11 @@ def printFinalReport(traj, goalPose):
 
 def main():
 
+    print(
+        f"Power optimization: {'ON' if usePowerOptimization else 'OFF'} "
+        f"(weight={powerOptimizationWeight if usePowerOptimization else 0.0}, stepDt={powerOptimizationStepDt})"
+    )
+
     qStart = getStartConfiguration()
     startPose = buildStartPose(qStart)
 
@@ -242,6 +254,11 @@ def main():
     printFinalReport(traj, goalPose)
 
     computeEnergyCost(str(outputJson))
+
+    print(
+        f"Power optimization: {'ON' if usePowerOptimization else 'OFF'} "
+        f"(weight={powerOptimizationWeight if usePowerOptimization else 0.0}, stepDt={powerOptimizationStepDt})"
+    )
 
 
 if __name__ == "__main__":

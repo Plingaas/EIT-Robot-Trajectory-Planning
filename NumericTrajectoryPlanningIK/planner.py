@@ -1,11 +1,13 @@
 import numpy as np
 from kinematics import forwardKinematicsT
 from constraints import clampQ
+from energy import computeStepEnergyCost
 
 
 # =============================================================================
 # Rotation Helpers
 # =============================================================================
+
 
 def vectorToR(rv):
     """
@@ -26,6 +28,7 @@ def vectorToR(rv):
     ])
 
     return np.eye(3) + np.sin(theta) * K + (1.0 - np.cos(theta)) * (K @ K)
+
 
 
 def rToVector(R):
@@ -75,6 +78,7 @@ def rToVector(R):
 # Pose Error
 # =============================================================================
 
+
 def poseError(q, targets, wPos=1.0, wRot=0.001):
     """
     Compute the weighted 6D pose error for IK.
@@ -97,6 +101,7 @@ def poseError(q, targets, wPos=1.0, wRot=0.001):
 # =============================================================================
 # Numerical Jacobian
 # =============================================================================
+
 
 def jacobianFd(q, targets, h=1e-5, wPos=1.0, wRot=0.001):
     """
@@ -125,20 +130,14 @@ def jacobianFd(q, targets, h=1e-5, wPos=1.0, wRot=0.001):
 # IK Step Helpers
 # =============================================================================
 
-def dampedSvdStep(J, e, q, qPrev, lam, smoothw):
-    """
-    Compute one damped least-squares IK step using SVD.
-    """
-    U, s, Vt = np.linalg.svd(J, full_matrices=False)
 
+def dampedSvdStep(U, s, Vt, e, q, qPrev, lam, smoothw):
     filt = s / (s**2 + lam**2)
-
     dqTask = -Vt.T @ (filt * (U.T @ e))
     dqSmooth = -smoothw * (q - qPrev)
-
     dq = dqTask + dqSmooth
+    return dq
 
-    return dq, s
 
 
 def adaptiveDamping(sigmaMin, baseDamping, sigmaThresh, singGain):
@@ -155,6 +154,7 @@ def adaptiveDamping(sigmaMin, baseDamping, sigmaThresh, singGain):
 # =============================================================================
 # Main IK Solver
 # =============================================================================
+
 
 def solvePoseIk(
     qInit,
@@ -211,7 +211,7 @@ def solvePoseIk(
 
         J = jacobianFd(q, targets, h=fdStep, wPos=wPos, wRot=wRot)
 
-        sVals = np.linalg.svd(J, compute_uv=False)
+        U, sVals, Vt = np.linalg.svd(J, full_matrices=False)
         sigmaMin = float(np.min(sVals))
         info["sigmaMin"] = sigmaMin
 
@@ -228,7 +228,7 @@ def solvePoseIk(
         bestStepNorm = 0.0
 
         for _retry in range(8):
-            dq, s = dampedSvdStep(J, e, q, qPrev, lam=lam, smoothw=smoothw)
+            dq = dampedSvdStep(U, sVals, Vt, e, q, qPrev, lam=lam, smoothw=smoothw)
             dq *= stepScale
 
             stepNorm = float(np.linalg.norm(dq))
@@ -291,8 +291,355 @@ def solvePoseIk(
 
 
 # =============================================================================
+# Trajectory Generation Helpers
+# =============================================================================
+
+
+def defaultStepCost(qPrev, qNext, qPrevPrev=None, dt=1.0, coeffs=None):
+    return computeStepEnergyCost(
+        qPrev,
+        qNext,
+        dt=dt,
+        qPrevPrev=qPrevPrev,
+        coeffs=coeffs,
+    )
+
+
+
+def estimateBaseSegmentTime(qA, qB, vMaxJoint=None, vMaxTcp=None, fkPosFn=None, minStepDt=1e-3):
+    qA = np.asarray(qA, dtype=float)
+    qB = np.asarray(qB, dtype=float)
+
+    dq = np.abs(qB - qA)
+
+    dtJoint = 0.0
+    if vMaxJoint is not None:
+        vMaxJoint = np.asarray(vMaxJoint, dtype=float)
+        if vMaxJoint.ndim == 0:
+            vMaxJoint = np.full(qA.size, float(vMaxJoint))
+        vSafe = np.maximum(vMaxJoint, 1e-9)
+        dtJoint = float(np.max(dq / vSafe))
+
+    dtTcp = 0.0
+    if vMaxTcp is not None and fkPosFn is not None:
+        pA = np.asarray(fkPosFn(qA), dtype=float).reshape(3)
+        pB = np.asarray(fkPosFn(qB), dtype=float).reshape(3)
+        dp = float(np.linalg.norm(pB - pA))
+        dtTcp = dp / max(float(vMaxTcp), 1e-9)
+
+    return max(dtJoint, dtTcp, minStepDt)
+
+
+
+def estimateStepTime(
+    qPrevPrev,
+    qPrev,
+    qNext,
+    vMaxJoint=None,
+    aMaxJoint=None,
+    vMaxTcp=None,
+    fkPosFn=None,
+    minStepDt=1e-3,
+    accelIters=6,
+):
+    qPrev = np.asarray(qPrev, dtype=float)
+    qNext = np.asarray(qNext, dtype=float)
+
+    dtNext = estimateBaseSegmentTime(
+        qPrev,
+        qNext,
+        vMaxJoint=vMaxJoint,
+        vMaxTcp=vMaxTcp,
+        fkPosFn=fkPosFn,
+        minStepDt=minStepDt,
+    )
+
+    if qPrevPrev is None or aMaxJoint is None:
+        return dtNext
+
+    qPrevPrev = np.asarray(qPrevPrev, dtype=float)
+
+    dtPrev = estimateBaseSegmentTime(
+        qPrevPrev,
+        qPrev,
+        vMaxJoint=vMaxJoint,
+        vMaxTcp=vMaxTcp,
+        fkPosFn=fkPosFn,
+        minStepDt=minStepDt,
+    )
+
+    aMaxJoint = np.asarray(aMaxJoint, dtype=float)
+    if aMaxJoint.ndim == 0:
+        aMaxJoint = np.full(qPrev.size, float(aMaxJoint))
+    aSafe = np.maximum(aMaxJoint, 1e-9)
+
+    dqPrev = qPrev - qPrevPrev
+    dqNext = qNext - qPrev
+
+    for _ in range(int(accelIters)):
+        vPrev = dqPrev / max(dtPrev, minStepDt)
+        vNext = dqNext / max(dtNext, minStepDt)
+        dtMid = 0.5 * (dtPrev + dtNext)
+        a = np.abs(vNext - vPrev) / max(dtMid, minStepDt)
+        ratio = float(np.max(a / aSafe))
+
+        if ratio <= 1.0 + 1e-9:
+            break
+
+        dtNext *= np.sqrt(ratio)
+
+    return max(dtNext, minStepDt)
+
+
+
+def buildCandidateSeedOffsets(nJoints, seedStepRad, candidateSeedOffsets=None):
+    if candidateSeedOffsets is None:
+        seedOffsets = [np.zeros(nJoints)]
+
+        if seedStepRad > 0.0:
+            for j in range(nJoints):
+                offPlus = np.zeros(nJoints)
+                offMinus = np.zeros(nJoints)
+                offPlus[j] = seedStepRad
+                offMinus[j] = -seedStepRad
+                seedOffsets.append(offPlus)
+                seedOffsets.append(offMinus)
+
+        return seedOffsets
+
+    seedOffsets = [np.asarray(off, dtype=float).reshape(nJoints) for off in candidateSeedOffsets]
+
+    if not any(np.linalg.norm(off) < 1e-12 for off in seedOffsets):
+        seedOffsets = [np.zeros(nJoints)] + seedOffsets
+
+    return seedOffsets
+
+
+
+def solveMainCandidate(qPrev, targetsI, jointLimits, smoothw, ikSolveKwargs):
+    qMain, infoMain = solvePoseIk(
+        qPrev,
+        targetsI,
+        jointLimits,
+        qPrev=qPrev,
+        smoothw=smoothw,
+        returnInfo=True,
+        **ikSolveKwargs,
+    )
+
+    return qMain, infoMain
+
+
+
+def chooseOldStyleCandidate(
+    qPrev,
+    qPrevPrev,
+    targetsI,
+    jointLimits,
+    smoothw,
+    ikSolveKwargs,
+    fallbackErrThreshold,
+    continuityWeight,
+):
+    qMain, infoMain = solveMainCandidate(
+        qPrev,
+        targetsI,
+        jointLimits,
+        smoothw,
+        ikSolveKwargs,
+    )
+
+    errMain = float(np.linalg.norm(poseError(
+        qMain,
+        targetsI,
+        wPos=ikSolveKwargs.get("wPos", 1.0),
+        wRot=ikSolveKwargs.get("wRot", 0.001),
+    )))
+
+    bestQ = qMain
+
+    dqMain = qMain - qPrev
+    if qPrevPrev is None:
+        accelMain = 0.0
+    else:
+        dqPrev = qPrev - qPrevPrev
+        accelMain = np.linalg.norm(dqMain - dqPrev)
+
+    accelWeight = ikSolveKwargs.get("accelWeight", 0.2)
+    bestScore = (
+        errMain
+        + continuityWeight * np.linalg.norm(dqMain)
+        + accelWeight * accelMain
+    )
+
+    solveCount = 1
+
+    goodEnough = infoMain["converged"] or (errMain < fallbackErrThreshold)
+
+    if goodEnough:
+        return bestQ, solveCount, False, 0.0, 0.0
+
+    nJoints = qPrev.size
+    fallbackOffsets = []
+
+    for j in range(nJoints):
+        offPlus = np.zeros(nJoints)
+        offMinus = np.zeros(nJoints)
+        offPlus[j] = 0.10
+        offMinus[j] = -0.10
+        fallbackOffsets.append(offPlus)
+        fallbackOffsets.append(offMinus)
+
+    for off in fallbackOffsets:
+        s = qPrev + off
+        s, _, _ = clampQ(s, jointLimits)
+
+        qTry, _infoTry = solvePoseIk(
+            s,
+            targetsI,
+            jointLimits,
+            qPrev=qPrev,
+            smoothw=smoothw,
+            returnInfo=True,
+            **ikSolveKwargs,
+        )
+        solveCount += 1
+
+        errTry = float(np.linalg.norm(poseError(
+            qTry,
+            targetsI,
+            wPos=ikSolveKwargs.get("wPos", 1.0),
+            wRot=ikSolveKwargs.get("wRot", 0.001),
+        )))
+        dqTry = qTry - qPrev
+        if qPrevPrev is None:
+            accelTry = 0.0
+        else:
+            dqPrev = qPrev - qPrevPrev
+            accelTry = np.linalg.norm(dqTry - dqPrev)
+        
+        accelWeight = ikSolveKwargs.get("accelWeight", 0.2)
+        scoreTry = (
+            errTry
+            + continuityWeight * np.linalg.norm(dqTry)
+            + accelWeight * accelTry
+        )
+
+        if scoreTry < bestScore:
+            bestScore = scoreTry
+            bestQ = qTry
+
+    return bestQ, solveCount, False, 0.0, 0.0
+
+
+
+def chooseEnergyOptimalCandidate(
+    qPrev,
+    qPrevPrev,
+    targetsI,
+    jointLimits,
+    smoothw,
+    ikSolveKwargs,
+    fallbackErrThreshold,
+    continuityWeight,
+    energyWeight,
+    stepCostFn,
+    energyCoeffs,
+    candidateSeedOffsets,
+    vMaxJoint,
+    aMaxJoint,
+    vMaxTcp,
+    fkPosFn,
+    minStepDt,
+    nonMainBias,
+    minEnergyImprovement,
+):
+    candidates = []
+    solveCount = 0
+
+    for seedIndex, off in enumerate(candidateSeedOffsets):
+        s = qPrev + off
+        s, _, _ = clampQ(s, jointLimits)
+
+        qTry, infoTry = solvePoseIk(
+            s,
+            targetsI,
+            jointLimits,
+            qPrev=qPrev,
+            smoothw=smoothw,
+            returnInfo=True,
+            **ikSolveKwargs,
+        )
+        solveCount += 1
+
+        errTry = float(np.linalg.norm(poseError(
+            qTry,
+            targetsI,
+            wPos=ikSolveKwargs.get("wPos", 1.0),
+            wRot=ikSolveKwargs.get("wRot", 0.001),
+        )))
+
+        dtEst = estimateStepTime(
+            qPrevPrev,
+            qPrev,
+            qTry,
+            vMaxJoint=vMaxJoint,
+            aMaxJoint=aMaxJoint,
+            vMaxTcp=vMaxTcp,
+            fkPosFn=fkPosFn,
+            minStepDt=minStepDt,
+        )
+
+        rawEnergy = 0.0 if stepCostFn is None else stepCostFn(
+            qPrev,
+            qTry,
+            qPrevPrev=qPrevPrev,
+            dt=dtEst,
+            coeffs=energyCoeffs,
+        )
+
+        continuityCost = continuityWeight * np.linalg.norm(qTry - qPrev)
+        biasCost = nonMainBias if seedIndex != 0 else 0.0
+        totalPlanningCost = energyWeight * rawEnergy + continuityCost + biasCost
+        validCandidate = infoTry["converged"] or (errTry < fallbackErrThreshold)
+
+        candidates.append({
+            "q": qTry,
+            "seedIndex": seedIndex,
+            "err": errTry,
+            "rawEnergy": rawEnergy,
+            "continuityCost": continuityCost,
+            "totalPlanningCost": totalPlanningCost,
+            "dtEst": dtEst,
+            "valid": validCandidate,
+        })
+
+    validCandidates = [c for c in candidates if c["valid"]]
+    if not validCandidates:
+        validCandidates = candidates
+
+    validCandidates.sort(key=lambda c: (c["totalPlanningCost"], c["err"], c["seedIndex"]))
+    best = validCandidates[0]
+
+    mainCandidate = None
+    for c in validCandidates:
+        if c["seedIndex"] == 0:
+            mainCandidate = c
+            break
+
+    if mainCandidate is not None and best["seedIndex"] != 0:
+        energyDelta = mainCandidate["totalPlanningCost"] - best["totalPlanningCost"]
+        if energyDelta < minEnergyImprovement:
+            best = mainCandidate
+
+    switchedCandidate = (best["seedIndex"] != 0)
+    return best["q"], solveCount, switchedCandidate, best["rawEnergy"], best["dtEst"]
+
+
+# =============================================================================
 # Trajectory Generation
 # =============================================================================
+
 
 def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwargs):
     """
@@ -310,84 +657,105 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
 
     qPrev = q.copy()
 
+    usePowerOptimization = ikKwargs.pop("usePowerOptimization", False)
     fallbackErrThreshold = ikKwargs.pop("fallbackErrThreshold", 5e-3)
     continuityWeight = ikKwargs.pop("continuityWeight", 0.01)
+    energyWeight = ikKwargs.pop("energyWeight", 1.0)
+    ikKwargs.pop("stepDt", None)
+    ikKwargs.pop("strictCostOptimization", None)
+    stepCostFn = ikKwargs.pop("stepCostFn", defaultStepCost)
+    energyCoeffs = ikKwargs.pop("energyCoeffs", None)
+    seedStepRad = ikKwargs.pop("seedStepRad", 0.05)
+    candidateSeedOffsets = ikKwargs.pop("candidateSeedOffsets", None)
+    vMaxJoint = ikKwargs.pop("vMaxJoint", None)
+    aMaxJoint = ikKwargs.pop("aMaxJoint", None)
+    vMaxTcp = ikKwargs.pop("vMaxTcp", None)
+    fkPosFn = ikKwargs.pop("fkPosFn", None)
+    minStepDt = ikKwargs.pop("minStepDt", 1e-3)
+    nonMainBias = ikKwargs.pop("nonMainBias", 0.0)
+    minEnergyImprovement = ikKwargs.pop("minEnergyImprovement", 1e-3)
+
+    if fkPosFn is None:
+        fkPosFn = lambda qVal: forwardKinematicsT(qVal)[:3, 3]
+
+    candidateSeedOffsets = buildCandidateSeedOffsets(
+        nJoints,
+        seedStepRad,
+        candidateSeedOffsets=candidateSeedOffsets,
+    )
+
+    ikSolveKwargs = dict(ikKwargs)
+
+    solveCount = 0
+    switchedCandidateCount = 0
+    accumulatedPlannerEnergy = 0.0
+    accumulatedEstimatedTime = 0.0
 
     for i in range(nTargets):
         if i == 0 or i == nTargets - 1 or i % max(1, nTargets // 20) == 0:
             pct = 100.0 * i / (nTargets - 1 if nTargets > 1 else 1)
             print(f"\rIK progress: {i+1}/{nTargets} ({pct:5.1f}%)", end="", flush=True)
 
-        qMain, infoMain = solvePoseIk(
-            qPrev,
-            targets[i],
-            jointLimits,
-            qPrev=qPrev,
-            smoothw=smoothw,
-            returnInfo=True,
-            **ikKwargs,
-        )
+        qPrevPrev = traj[i - 2].copy() if i >= 2 else None
 
-        eMain = poseError(
-            qMain,
-            targets[i],
-            wPos=ikKwargs.get("wPos", 1.0),
-            wRot=ikKwargs.get("wRot", 0.001),
-        )
-        errMain = float(np.linalg.norm(eMain))
+        if usePowerOptimization:
+            q, solveCountI, switchedCandidate, plannerEnergyI, dtEstI = chooseEnergyOptimalCandidate(
+                qPrev,
+                qPrevPrev,
+                targets[i],
+                jointLimits,
+                smoothw,
+                ikSolveKwargs,
+                fallbackErrThreshold,
+                continuityWeight,
+                energyWeight,
+                stepCostFn,
+                energyCoeffs,
+                candidateSeedOffsets,
+                vMaxJoint,
+                aMaxJoint,
+                vMaxTcp,
+                fkPosFn,
+                minStepDt,
+                nonMainBias,
+                minEnergyImprovement,
+            )
+        else:
+            q, solveCountI, switchedCandidate, plannerEnergyI, dtEstI = chooseOldStyleCandidate(
+                qPrev,
+                qPrevPrev,
+                targets[i],
+                jointLimits,
+                smoothw,
+                ikSolveKwargs,
+                fallbackErrThreshold,
+                continuityWeight,
+            )
 
-        bestQ = qMain
-        bestScore = errMain + continuityWeight * np.linalg.norm(qMain - qPrev)
+        solveCount += solveCountI
+        if switchedCandidate:
+            switchedCandidateCount += 1
 
-        goodEnough = infoMain["converged"] or (errMain < fallbackErrThreshold)
+        accumulatedPlannerEnergy += plannerEnergyI
+        accumulatedEstimatedTime += dtEstI
 
-        if not goodEnough:
-            seedOffsets = [
-                np.array([+0.05 if j == 0 else 0.0 for j in range(nJoints)]),
-                np.array([-0.05 if j == 0 else 0.0 for j in range(nJoints)]),
-                np.array([+0.05 if j == 1 else 0.0 for j in range(nJoints)]) if nJoints > 1 else np.zeros(nJoints),
-                np.array([-0.05 if j == 1 else 0.0 for j in range(nJoints)]) if nJoints > 1 else np.zeros(nJoints),
-            ]
-
-            for off in seedOffsets:
-                s = qPrev + off
-                s, _, _ = clampQ(s, jointLimits)
-
-                qTry, infoTry = solvePoseIk(
-                    s,
-                    targets[i],
-                    jointLimits,
-                    qPrev=qPrev,
-                    smoothw=smoothw,
-                    returnInfo=True,
-                    **ikKwargs,
-                )
-
-                eTry = poseError(
-                    qTry,
-                    targets[i],
-                    wPos=ikKwargs.get("wPos", 1.0),
-                    wRot=ikKwargs.get("wRot", 0.001),
-                )
-                errTry = float(np.linalg.norm(eTry))
-
-                score = errTry + continuityWeight * np.linalg.norm(qTry - qPrev)
-
-                if score < bestScore:
-                    bestScore = score
-                    bestQ = qTry
-
-        q = bestQ
         traj[i] = q
         qPrev = q
 
     print()
+    if usePowerOptimization:
+        print(f"IK candidate solves: {solveCount}")
+        print(f"IK non-main selections: {switchedCandidateCount}/{nTargets}")
+        print(f"Accumulated planner energy score: {accumulatedPlannerEnergy:.6f}")
+        print(f"Accumulated estimated step time: {accumulatedEstimatedTime:.6f}s")
+
     return traj
 
 
 # =============================================================================
 # Singularity Metric
 # =============================================================================
+
 
 def singularityCost(q, targets, h=1e-5, wPos=1.0, wRot=0.001, eps=1e-8):
     """

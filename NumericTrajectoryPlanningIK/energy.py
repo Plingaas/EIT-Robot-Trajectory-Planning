@@ -19,6 +19,15 @@ cHold = 1.0
 # Helpers
 # =============================================================================
 
+def getDefaultEnergyCoefficients():
+    return {
+        "idlePower": idlePower,
+        "cAcceleration": cAcceleration,
+        "cVelocity": cVelocity,
+        "cHold": cHold,
+    }
+
+
 def loadTrajectory(jsonFile):
     with open(jsonFile, "r") as f:
         data = json.load(f)
@@ -72,6 +81,44 @@ def computeJointAccelerations(qDot, dtSeg):
 # Feature Extraction
 # =============================================================================
 
+def computeStepFeatures(qPrev, qNext, dt=1.0, qPrevPrev=None, weights=None):
+    qPrev = np.asarray(qPrev, dtype=float)
+    qNext = np.asarray(qNext, dtype=float)
+
+    if weights is None:
+        weights = jointWeights
+
+    dt = float(dt)
+    if dt <= 0.0:
+        raise ValueError("dt must be positive")
+
+    dq = qNext - qPrev
+    qDot = dq / dt
+
+    weightedAbsVel = weights * np.abs(qDot)
+    weightedVel2 = weights * (qDot ** 2)
+
+    if qPrevPrev is None:
+        weightedAccVel = np.zeros_like(weightedVel2)
+    else:
+        qPrevPrev = np.asarray(qPrevPrev, dtype=float)
+        qDotPrev = (qPrev - qPrevPrev) / dt
+        qDDot = (qDot - qDotPrev) / dt
+        weightedAccVel = weights * np.abs(qDDot) * np.abs(qDot)
+
+    A = float(np.sum(weightedAccVel) * dt)
+    V = float(np.sum(weightedVel2) * dt)
+    H = float(np.sum(weightedAbsVel) * dt)
+    T = dt
+
+    return {
+        "duration": T,
+        "A": A,
+        "V": V,
+        "H": H,
+    }
+
+
 def computeTrajectoryFeatures(jsonFile):
     t, q = loadTrajectory(jsonFile)
     dtSeg = computeTimeDifferences(t)
@@ -96,17 +143,12 @@ def computeTrajectoryFeatures(jsonFile):
 
 
 # =============================================================================
-# Energy Components
+# Energy Components                                                            
 # =============================================================================
 
 def computePredictedEnergyFromFeatures(features, coeffs=None):
     if coeffs is None:
-        coeffs = {
-            "idlePower": idlePower,
-            "cAcceleration": cAcceleration,
-            "cVelocity": cVelocity,
-            "cHold": cHold,
-        }
+        coeffs = getDefaultEnergyCoefficients()
 
     T = features["duration"]
     A = features["A"]
@@ -126,6 +168,18 @@ def computePredictedEnergyFromFeatures(features, coeffs=None):
         "eMotion": eMotion,
         "eTotal": eTotal,
     }
+
+
+def computeStepEnergyCost(qPrev, qNext, dt=1.0, qPrevPrev=None, coeffs=None, weights=None):
+    features = computeStepFeatures(
+        qPrev,
+        qNext,
+        dt=dt,
+        qPrevPrev=qPrevPrev,
+        weights=weights,
+    )
+    energies = computePredictedEnergyFromFeatures(features, coeffs)
+    return energies["eTotal"]
 
 
 def computeEnergyCost(jsonFile, coeffs=None):
