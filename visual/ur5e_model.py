@@ -6,6 +6,7 @@ from visual.model import VisualLink, VisualRobot
 from robot.ur5e_parameters import HOME_FRAMES
 
 ROOT = Path(__file__).resolve().parent.parent
+MM_TO_M = 1e-3
 
 LINK_ORDER = (
     "mount",
@@ -36,6 +37,7 @@ class UR5e(VisualRobot):
                     name=name,
                     mesh_path=ROOT / MESH_PATHS[name],
                     home_frame=np.array(HOME_FRAMES[name], dtype=float, copy=True),
+                    mesh_scale=MM_TO_M,
                 )
             )
         super().__init__(links)

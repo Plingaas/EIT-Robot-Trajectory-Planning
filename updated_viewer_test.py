@@ -79,13 +79,14 @@ def build_sway_path(num_cycles: int, steps_per_cycle: int) -> list[np.ndarray]:
         q[4] += q_amp[4] * accent
         q[5] += q_amp[5] * sway
         q_path.append(q)
+
     return q_path
 
 
 if __name__ == "__main__":
     robot = UR5e()
-    viewer = Viewer(window_name="UR5e Motion Test")
-    viewer.add_robot(robot)
+    viewer = Viewer(window_name="UR5e Motion Test", world_frame_size=0.25)
+    viewer.add_robot(robot, frame_size=0.1)
     viewer.add_trace("end_effector")
 
     q_path = build_sway_path(num_cycles=6, steps_per_cycle=90)
