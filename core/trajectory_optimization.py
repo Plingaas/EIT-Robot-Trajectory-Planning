@@ -39,6 +39,8 @@ class ShapeOptimizationResult:
     message: str
     iterations: int
     evaluations: int
+    cost_history: Vectorn
+    best_cost_history: Vectorn
     evaluation: EnergyEvaluation
 
 
@@ -96,6 +98,89 @@ def plot_joint_trajectory_comparison(
         ax.grid(True, alpha=0.3)
 
     axes[0].legend()
+    fig.tight_layout()
+    plt.show()
+
+
+def plot_cost_history(result: ShapeOptimizationResult) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "matplotlib is required for plotting. Install it with 'pip install matplotlib'."
+        ) from exc
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    evaluations = np.arange(1, result.cost_history.size + 1)
+    ax.plot(evaluations, result.cost_history, label="Cost", alpha=0.5)
+    ax.plot(evaluations, result.best_cost_history, label="Best So Far", linewidth=2.0)
+    ax.set_title("Optimization Cost History")
+    ax.set_xlabel("Function Evaluation")
+    ax.set_ylabel("Energy")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+
+
+def _cumulative_integral(y: Vectorn, x: Vectorn) -> Vectorn:
+    y = np.asarray(y, dtype=float)
+    x = np.asarray(x, dtype=float)
+    if y.shape != x.shape:
+        raise ValueError("y and x must have the same shape.")
+
+    cumulative = np.zeros_like(y, dtype=float)
+    if y.size < 2:
+        return cumulative
+
+    dx = np.diff(x)
+    trapezoids = 0.5 * (y[:-1] + y[1:]) * dx
+    cumulative[1:] = np.cumsum(trapezoids)
+    return cumulative
+
+
+def plot_power_comparison(
+    cubic_evaluation: EnergyEvaluation,
+    optimized_evaluation: EnergyEvaluation,
+    polynomial_degree: int,
+) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "matplotlib is required for plotting. Install it with 'pip install matplotlib'."
+        ) from exc
+
+    cubic_cumulative = _cumulative_integral(cubic_evaluation.power, cubic_evaluation.t)
+    optimized_cumulative = _cumulative_integral(optimized_evaluation.power, optimized_evaluation.t)
+
+    fig, axes = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
+
+    axes[0].plot(cubic_evaluation.t, cubic_evaluation.power, label="Cubic", linewidth=2.0)
+    axes[0].plot(
+        optimized_evaluation.t,
+        optimized_evaluation.power,
+        label=f"Optimized {_ordinal(polynomial_degree)} Degree",
+        linewidth=2.0,
+    )
+    axes[0].set_title("Power Consumption")
+    axes[0].set_ylabel("Power")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].plot(cubic_evaluation.t, cubic_cumulative, label="Cubic", linewidth=2.0)
+    axes[1].plot(
+        optimized_evaluation.t,
+        optimized_cumulative,
+        label=f"Optimized {_ordinal(polynomial_degree)} Degree",
+        linewidth=2.0,
+    )
+    axes[1].set_title("Cumulative Energy")
+    axes[1].set_xlabel("Time [s]")
+    axes[1].set_ylabel("Energy")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+
     fig.tight_layout()
     plt.show()
 
@@ -232,7 +317,7 @@ def evaluate_shaped_trajectory_energy(
         if payload_mass != 0.0:
             T_ee = fk(np.asarray(M_LIST[-1], dtype=float), S, q_k)
             R_ee = T_ee[:3, :3]
-            f_space = payload_mass * np.asarray(g, dtype=float).reshape(3,)
+            f_space = -payload_mass * np.asarray(g, dtype=float).reshape(3,)
             f_ee = R_ee.T @ f_space
             Ftip_total = Ftip_total + np.hstack((np.zeros(3, dtype=float), f_ee))
 
@@ -291,6 +376,7 @@ def optimize_trajectory_shape(
         raise ValueError("shape_bounds must satisfy lower < upper.")
 
     bounds = [(lower, upper)] * x0.size
+    cost_history: list[float] = []
 
     def objective(x: Vectorn) -> float:
         evaluation = evaluate_shaped_trajectory_energy(
@@ -307,7 +393,9 @@ def optimize_trajectory_shape(
             S=S,
             num_samples=num_samples,
         )
-        return evaluation.energy
+        cost = evaluation.energy
+        cost_history.append(cost)
+        return cost
 
     result = minimize(
         objective,
@@ -342,6 +430,8 @@ def optimize_trajectory_shape(
         message=str(result.message),
         iterations=int(getattr(result, "nit", 0)),
         evaluations=int(getattr(result, "nfev", 0)),
+        cost_history=np.asarray(cost_history, dtype=float),
+        best_cost_history=np.minimum.accumulate(np.asarray(cost_history, dtype=float)),
         evaluation=best_evaluation,
     )
 
@@ -353,13 +443,13 @@ if __name__ == "__main__":
     optimized_output_path = Path("trajectories/optimized_trajectory.json")
     cubic_output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    q_start = np.zeros(6)
-    q_goal = np.array([0.0, np.pi / 2, np.pi / 2, np.pi / 2, 0.0, np.pi / 2])
-    duration = 10.0
+    q_start = np.array([0.0, -np.pi, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    q_goal = np.zeros(6, dtype=float)
+    duration = 5.0
     polynomial_degree = 7
     g = np.array([0.0, 0.0, -9.81])
     Ftip = np.zeros(6)
-    payload_mass = 0.0
+    payload_mass = 5
 
     cubic_evaluation = evaluate_shaped_trajectory_energy(
         q_start=q_start,
@@ -387,11 +477,11 @@ if __name__ == "__main__":
         M_LIST=M_LIST,
         G_LIST=G_LIST,
         S=S,
-        shape_bounds=(-2.0, 2.0),
+        shape_bounds=(-1000.0, 1000.0),
         num_samples=100,
-        method="Powell",
-        maxiter=100,
-        maxfev=2000,
+        method="SLSQP",
+        maxiter=1000,
+        maxfev=5000,
     )
 
     print("Optimization Result:")
@@ -400,6 +490,7 @@ if __name__ == "__main__":
     print(f"Polynomial Degree: {polynomial_degree}")
     print(f"Cubic Energy: {cubic_evaluation.energy:.4f}")
     print(f"Optimized Energy: {optimization_result.energy:.4f}")
+    print(f"Recorded Objective Evaluations: {optimization_result.cost_history.size}")
 
     save_joint_trajectory(cubic_output_path, cubic_evaluation)
     save_joint_trajectory(optimized_output_path, optimization_result.evaluation)
@@ -412,6 +503,12 @@ if __name__ == "__main__":
             optimization_result.evaluation,
             polynomial_degree=polynomial_degree,
         )
+    plot_power_comparison(
+        cubic_evaluation,
+        optimization_result.evaluation,
+        polynomial_degree=polynomial_degree,
+    )
+    plot_cost_history(optimization_result)
 
 # Cubic Energy: 76.7894
 # Optimized Energy: 76.6235
