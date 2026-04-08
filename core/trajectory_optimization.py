@@ -189,6 +189,12 @@ def _integrate_samples(power: Vectorn, time: Vectorn) -> float:
     return float(np.trapezoid(power, time))
 
 
+def _shortest_angular_delta(q_start: Vectorn, q_goal: Vectorn) -> Vectorn:
+    q_start = np.asarray(q_start, dtype=float)
+    q_goal = np.asarray(q_goal, dtype=float)
+    return (q_goal - q_start + np.pi) % (2.0 * np.pi) - np.pi
+
+
 def _num_shape_coefficients(polynomial_degree: int) -> int:
     if polynomial_degree < 3:
         raise ValueError("polynomial_degree must be at least 3.")
@@ -268,7 +274,7 @@ def sample_shaped_joint_trajectory(
     # Boundary-safe shape terms: phi(0)=phi(1)=phi'(0)=phi'(1)=0.
     phi, phi_u, phi_uu = _shape_basis(u, polynomial_degree)
 
-    dq = q_goal - q_start
+    dq = _shortest_angular_delta(q_start, q_goal)
     q = (
         q_start[None, :]
         + h[:, None] * dq[None, :]
@@ -443,10 +449,10 @@ if __name__ == "__main__":
     optimized_output_path = Path("trajectories/optimized_trajectory.json")
     cubic_output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    q_start = np.array([0.0, -np.pi, 0.0, 0.0, 0.0, 0.0], dtype=float)
+    q_start = np.array([0.0, np.pi, np.pi, 0.0, 0.0, 0.0], dtype=float)
     q_goal = np.zeros(6, dtype=float)
     duration = 5.0
-    polynomial_degree = 7
+    polynomial_degree = 5
     g = np.array([0.0, 0.0, -9.81])
     Ftip = np.zeros(6)
     payload_mass = 5
