@@ -14,6 +14,7 @@ class VisualLink:
     mesh_path: Path
     home_frame: Matrix4x4
     color: tuple[float, float, float] | None = None
+    mesh_scale: float = 1.0
 
 
 class VisualRobot:
@@ -41,8 +42,12 @@ class VisualRobot:
         if mesh.is_empty():
             raise FileNotFoundError(f"{link.name}: failed to load mesh: {link.mesh_path}")
 
+        if link.mesh_scale <= 0.0:
+            raise ValueError(f"{link.name}: mesh_scale must be > 0, got {link.mesh_scale}")
+        if link.mesh_scale != 1.0:
+            mesh.scale(link.mesh_scale, center=(0.0, 0.0, 0.0))
+
         mesh.compute_vertex_normals()
         if link.color is not None:
             mesh.paint_uniform_color(link.color)
         return mesh
-

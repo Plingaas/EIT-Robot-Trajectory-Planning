@@ -4,9 +4,8 @@ from pathlib import Path
 import numpy as np
 
 from core.kinematics.fk import fk_links
-from robot.ur5e_home_poses import LINK_ORDER
-from robot.ur5e_parameters import S
-from visual.ur5e_model import UR5e
+from robot.ur5e_parameters import M_LIST, S
+from visual.ur5e_model import LINK_ORDER, UR5e
 from visual.viewer import Viewer
 
 
@@ -67,15 +66,13 @@ def main() -> None:
     viewer.add_robot(robot, show_frames=False, frame_size=100.0)
     viewer.add_trace("end_effector")
 
-    home_frames = robot.home_frames()
-    home_frame_list = [home_frames[name] for name in LINK_ORDER]
     times, joint_positions = load_trajectory("trajectory.json")
     duration = float(times[-1])
 
     def update(t: float) -> None:
         t_wrapped = t % duration
         q = interpolate_q(t_wrapped, times, joint_positions)
-        link_frames = fk_links(home_frame_list, S, q)
+        link_frames = fk_links(M_LIST, S, q)
         viewer.set_transforms(dict(zip(LINK_ORDER, link_frames)))
 
     viewer.run_callback(update, fps=60.0)

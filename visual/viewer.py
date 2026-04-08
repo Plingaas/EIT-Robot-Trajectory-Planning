@@ -229,6 +229,27 @@ class Viewer:
 
         self.close()
 
+    def run_sequence(self, sequence: FrameSequence, loop: bool = False) -> None:
+        frame_delays = [0.0]
+        for i in range(1, len(sequence.times)):
+            frame_delays.append(float(sequence.times[i] - sequence.times[i - 1]))
+
+        while True:
+            for frame, delay in zip(sequence.frames, frame_delays):
+                frame_start = time.perf_counter()
+                self.set_transforms(frame)
+                if not self.tick():
+                    self.close()
+                    return
+                if delay > 0.0:
+                    elapsed = time.perf_counter() - frame_start
+                    remaining = delay - elapsed
+                    if remaining > 0.0:
+                        time.sleep(remaining)
+            if not loop:
+                break
+        self.close()
+
     def close(self) -> None:
         if not self._closed:
             self.vis.destroy_window()
