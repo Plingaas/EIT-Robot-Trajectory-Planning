@@ -1,9 +1,9 @@
 import numpy as np
 
-from scipy.linalg import expm, logm
+from scipy.linalg import logm
 
 from core.types import Matrix3x3, Matrix4x4, Matrix6x6, Vector3, Vector6
-from core.so3 import skew
+from core.so3 import exp_so3, skew
 
 def homogeneous(R: Matrix3x3, p: Vector3) -> Matrix4x4:
     """Build 4x4 homogeneous transform ∈ SE(3) from R ∈ SO(3) and p ∈ ℝ³"""
@@ -80,18 +80,64 @@ def adjoint(T: Matrix4x4) -> Matrix6x6:
     Ad[3:, :3] = skew(p) @ R
     return Ad
 
+
+def _exp_se3_from_twist_components(w_theta: Vector3, v_theta: Vector3) -> Matrix4x4:
+    """
+    Closed-form SE(3) exponential from a scaled twist xi * theta.
+
+    The inputs are the rotational and translational parts of vee(Xi_hat), i.e.
+    w_theta = w * theta and v_theta = v * theta for a twist xi = [w, v].
+    """
+    w_theta = np.asarray(w_theta, dtype=float).reshape(3,)
+    v_theta = np.asarray(v_theta, dtype=float).reshape(3,)
+
+    theta = float(np.linalg.norm(w_theta))
+    T = np.eye(4, dtype=float)
+
+    if theta < 1e-12:
+        T[:3, 3] = v_theta
+        return T
+
+    w = w_theta / theta
+    v = v_theta / theta
+    w_hat = skew(w)
+    w_hat_sq = w_hat @ w_hat
+
+    R = exp_so3(w, theta)
+    V = (
+        np.eye(3, dtype=float) * theta
+        + (1.0 - np.cos(theta)) * w_hat
+        + (theta - np.sin(theta)) * w_hat_sq
+    )
+
+    T[:3, :3] = R
+    T[:3, 3] = V @ v
+    return T
+
+
 def exp_se3(Xi_hat: Matrix4x4) -> Matrix4x4:
     """Return T ∈ SE(3) as exp(Xî) for Xî ∈ se(3)."""
     Xi_hat = np.asarray(Xi_hat, dtype=float)
     if Xi_hat.shape != (4, 4):
         raise ValueError("exp_se3() expects a 4x4 matrix.")
-    return expm(Xi_hat) # TODO; Slow as hell, use closed-form solution for better performance.
+    w_theta = np.array(
+        [
+            Xi_hat[2, 1],
+            Xi_hat[0, 2],
+            Xi_hat[1, 0],
+        ],
+        dtype=float,
+    )
+    return _exp_se3_from_twist_components(w_theta, Xi_hat[:3, 3])
 
 
 
 def exp_se3_twist(xi: Vector6, theta: float) -> Matrix4x4:
     """Return T ∈ SE(3) as exp(hat(xi)·theta) for twist xi = [ω, v]."""
-    return expm(hat(xi) * theta)  # TODO; Slow as hell, use closed-form solution for better performance.
+    xi = np.asarray(xi, dtype=float).reshape(6,)
+    w = xi[:3]
+    v = xi[3:]
+    return _exp_se3_from_twist_components(w * theta, v * theta)
 
 
 def log_se3(T: Matrix4x4) -> Matrix4x4:
@@ -107,5 +153,3 @@ def log_se3(T: Matrix4x4) -> Matrix4x4:
     Xi_hat[:3, :3] = 0.5 * (W - W.T)
     Xi_hat[3, 3] = 0.0
     return Xi_hat
-
-
