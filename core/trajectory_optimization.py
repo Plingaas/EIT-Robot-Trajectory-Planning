@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import minimize
 
-from core.dynamics import inverse_dynamics
+from core.dynamics import inverse_dynamics, precompute_inverse_dynamics_constants
 from core.kinematics.fk import fk
 from core.types import Matrix4x4, Matrix6x6, Matrix6xn, Vector3, Vector6, Vectorn
 
@@ -85,7 +85,12 @@ def plot_joint_trajectory_comparison(
 
     for joint_idx in range(n_joints):
         ax = axes[joint_idx]
-        ax.plot(cubic_evaluation.t, cubic_evaluation.q[:, joint_idx], label="Cubic", linewidth=2.0)
+        ax.plot(
+            cubic_evaluation.t,
+            cubic_evaluation.q[:, joint_idx],
+            label="Baseline Quintic",
+            linewidth=2.0,
+        )
         ax.plot(
             optimized_evaluation.t,
             optimized_evaluation.q[:, joint_idx],
@@ -156,7 +161,12 @@ def plot_power_comparison(
 
     fig, axes = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
 
-    axes[0].plot(cubic_evaluation.t, cubic_evaluation.power, label="Cubic", linewidth=2.0)
+    axes[0].plot(
+        cubic_evaluation.t,
+        cubic_evaluation.power,
+        label="Baseline Quintic",
+        linewidth=2.0,
+    )
     axes[0].plot(
         optimized_evaluation.t,
         optimized_evaluation.power,
@@ -168,7 +178,12 @@ def plot_power_comparison(
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
-    axes[1].plot(cubic_evaluation.t, cubic_cumulative, label="Cubic", linewidth=2.0)
+    axes[1].plot(
+        cubic_evaluation.t,
+        cubic_cumulative,
+        label="Baseline Quintic",
+        linewidth=2.0,
+    )
     axes[1].plot(
         optimized_evaluation.t,
         optimized_cumulative,
@@ -185,7 +200,7 @@ def plot_power_comparison(
     plt.show()
 
 
-def _integrate_samples(power: Vectorn, time: Vectorn) -> float:
+def _integrate_power(power: Vectorn, time: Vectorn) -> float:
     return float(np.trapezoid(power, time))
 
 
@@ -196,9 +211,9 @@ def _shortest_angular_delta(q_start: Vectorn, q_goal: Vectorn) -> Vectorn:
 
 
 def _num_shape_coefficients(polynomial_degree: int) -> int:
-    if polynomial_degree < 3:
-        raise ValueError("polynomial_degree must be at least 3.")
-    return polynomial_degree - 3
+    if polynomial_degree < 5:
+        raise ValueError("polynomial_degree must be at least 5.")
+    return polynomial_degree - 5
 
 
 def _reshape_shape_params(shape_params: Vectorn, n_joints: int, polynomial_degree: int) -> np.ndarray:
@@ -218,17 +233,19 @@ def _shape_basis(u: Vectorn, polynomial_degree: int) -> tuple[np.ndarray, np.nda
     basis_first = []
     basis_second = []
 
-    for p in range(2, polynomial_degree - 1):
-        basis_values.append(u**p - 2.0 * u**(p + 1) + u**(p + 2))
+    for p in range(3, polynomial_degree - 2):
+        basis_values.append(u**p - 3.0 * u**(p + 1) + 3.0 * u**(p + 2) - u**(p + 3))
         basis_first.append(
             p * u**(p - 1)
-            - 2.0 * (p + 1) * u**p
-            + (p + 2) * u**(p + 1)
+            - 3.0 * (p + 1) * u**p
+            + 3.0 * (p + 2) * u**(p + 1)
+            - (p + 3) * u**(p + 2)
         )
         basis_second.append(
             p * (p - 1) * u**(p - 2)
-            - 2.0 * p * (p + 1) * u**(p - 1)
-            + (p + 1) * (p + 2) * u**p
+            - 3.0 * p * (p + 1) * u**(p - 1)
+            + 3.0 * (p + 1) * (p + 2) * u**p
+            - (p + 2) * (p + 3) * u**(p + 1)
         )
 
     if not basis_values:
@@ -266,12 +283,13 @@ def sample_shaped_joint_trajectory(
     t = np.linspace(0.0, duration, num_samples, dtype=float)
     u = t / duration
 
-    # Base cubic: fixed endpoints with zero endpoint velocities.
-    h = 3.0 * u**2 - 2.0 * u**3
-    h_u = 6.0 * u - 6.0 * u**2
-    h_uu = 6.0 - 12.0 * u
+    # Base quintic: fixed endpoints with zero endpoint velocity and acceleration.
+    h = 10.0 * u**3 - 15.0 * u**4 + 6.0 * u**5
+    h_u = 30.0 * u**2 - 60.0 * u**3 + 30.0 * u**4
+    h_uu = 60.0 * u - 180.0 * u**2 + 120.0 * u**3
 
-    # Boundary-safe shape terms: phi(0)=phi(1)=phi'(0)=phi'(1)=0.
+    # Boundary-safe shape terms:
+    # phi(0)=phi(1)=phi'(0)=phi'(1)=phi''(0)=phi''(1)=0.
     phi, phi_u, phi_uu = _shape_basis(u, polynomial_degree)
 
     dq = _shortest_angular_delta(q_start, q_goal)
@@ -306,6 +324,12 @@ def evaluate_shaped_trajectory_energy(
     num_samples: int = 200,
     polynomial_degree: int = POLYNOMIAL_DEGREE,
 ) -> EnergyEvaluation:
+    dynamics_constants = precompute_inverse_dynamics_constants(
+        M_LIST=M_LIST,
+        G_LIST=G_LIST,
+        S=S,
+    )
+
     trajectory = sample_shaped_joint_trajectory(
         q_start=q_start,
         q_goal=q_goal,
@@ -336,13 +360,14 @@ def evaluate_shaped_trajectory_energy(
             M_LIST=M_LIST,
             G_LIST=G_LIST,
             S=S,
+            constants=dynamics_constants,
         )
         tau_samples.append(tau_k)
         power_samples.append(float(np.sum(np.abs(tau_k * q_dot_k))))
 
     tau = np.asarray(tau_samples, dtype=float)
     power = np.asarray(power_samples, dtype=float)
-    energy = _integrate_samples(power, trajectory.t)
+    energy = _integrate_power(power, trajectory.t)
 
     return EnergyEvaluation(
         energy=energy,
@@ -383,8 +408,11 @@ def optimize_trajectory_shape(
 
     bounds = [(lower, upper)] * x0.size
     cost_history: list[float] = []
+    best_cost = np.inf
+    best_x = x0.copy()
 
     def objective(x: Vectorn) -> float:
+        nonlocal best_cost, best_x
         evaluation = evaluate_shaped_trajectory_energy(
             q_start=q_start,
             q_goal=q_goal,
@@ -401,6 +429,11 @@ def optimize_trajectory_shape(
         )
         cost = evaluation.energy
         cost_history.append(cost)
+
+        if cost < best_cost:
+            best_cost = cost
+            best_x = np.asarray(x, dtype=float).copy()
+
         return cost
 
     result = minimize(
@@ -413,12 +446,17 @@ def optimize_trajectory_shape(
             "maxfev": maxfev,
         },
     )
+    success = bool(result.success)
+    message = str(result.message)
+    final_x = np.asarray(result.x, dtype=float)
+    iterations = int(getattr(result, "nit", 0))
+    evaluations = int(getattr(result, "nfev", 0))
 
     best_evaluation = evaluate_shaped_trajectory_energy(
         q_start=q_start,
         q_goal=q_goal,
         duration=duration,
-        shape_params=result.x,
+        shape_params=final_x,
         polynomial_degree=polynomial_degree,
         g=g,
         Ftip=Ftip,
@@ -430,12 +468,12 @@ def optimize_trajectory_shape(
     )
 
     return ShapeOptimizationResult(
-        shape_params=np.asarray(result.x, dtype=float),
+        shape_params=final_x,
         energy=best_evaluation.energy,
-        success=bool(result.success),
-        message=str(result.message),
-        iterations=int(getattr(result, "nit", 0)),
-        evaluations=int(getattr(result, "nfev", 0)),
+        success=success,
+        message=message,
+        iterations=iterations,
+        evaluations=evaluations,
         cost_history=np.asarray(cost_history, dtype=float),
         best_cost_history=np.minimum.accumulate(np.asarray(cost_history, dtype=float)),
         evaluation=best_evaluation,
@@ -444,63 +482,73 @@ def optimize_trajectory_shape(
 
 if __name__ == "__main__":
     from robot.ur5e_parameters import M_LIST, G_LIST, S
+    from pyinstrument import Profiler
 
     cubic_output_path = Path("trajectories/cubic_trajectory.json")
     optimized_output_path = Path("trajectories/optimized_trajectory.json")
     cubic_output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    q_start = np.array([0.0, np.pi, np.pi, 0.0, 0.0, 0.0], dtype=float)
-    q_goal = np.zeros(6, dtype=float)
+    q_start = np.zeros(6, dtype=float) 
+    q_goal = np.array([0.0, np.pi, np.pi/3, 0.0, 0.0, 0.0], dtype=float)
+    # q_goal = np.array([0.0, np.pi, 0.0, 0.0, 0.0, 0.0], dtype=float)
+
     duration = 5.0
-    polynomial_degree = 5
+    polynomial_degree = 7
     g = np.array([0.0, 0.0, -9.81])
     Ftip = np.zeros(6)
     payload_mass = 5
 
-    cubic_evaluation = evaluate_shaped_trajectory_energy(
-        q_start=q_start,
-        q_goal=q_goal,
-        duration=duration,
-        shape_params=np.zeros(_num_shape_coefficients(polynomial_degree) * q_start.size),
-        polynomial_degree=polynomial_degree,
-        g=g,
-        Ftip=Ftip,
-        payload_mass=payload_mass,
-        M_LIST=M_LIST,
-        G_LIST=G_LIST,
-        S=S,
-        num_samples=100,
-    )
+    with Profiler() as profiler:
 
-    optimization_result = optimize_trajectory_shape(
-        q_start=q_start,
-        q_goal=q_goal,
-        duration=duration,
-        polynomial_degree=polynomial_degree,
-        g=g,
-        Ftip=Ftip,
-        payload_mass=payload_mass,
-        M_LIST=M_LIST,
-        G_LIST=G_LIST,
-        S=S,
-        shape_bounds=(-1000.0, 1000.0),
-        num_samples=100,
-        method="SLSQP",
-        maxiter=1000,
-        maxfev=5000,
-    )
+        cubic_evaluation = evaluate_shaped_trajectory_energy(
+            q_start=q_start,
+            q_goal=q_goal,
+            duration=duration,
+            shape_params=np.zeros(_num_shape_coefficients(polynomial_degree) * q_start.size),
+            polynomial_degree=polynomial_degree,
+            g=g,
+            Ftip=Ftip,
+            payload_mass=payload_mass,
+            M_LIST=M_LIST,
+            G_LIST=G_LIST,
+            S=S,
+            num_samples=100,
+        )
+
+        optimization_result = optimize_trajectory_shape(
+            q_start=q_start,
+            q_goal=q_goal,
+            duration=duration,
+            polynomial_degree=polynomial_degree,
+            g=g,
+            Ftip=Ftip,
+            payload_mass=payload_mass,
+            M_LIST=M_LIST,
+            G_LIST=G_LIST,
+            S=S,
+            shape_bounds=(-100.0, 100.0),
+            num_samples=100,
+            method="SLSQP",
+            maxiter=100,
+            maxfev=5000,
+        )
+
+    path = "optimization_profile.html"
+    profiler.write_html(path)
+    print(f"Optimization profiling saved to: {path}")
 
     print("Optimization Result:")
+    print("Method: SLSQP")
     print(f"Success: {optimization_result.success}")
     print(f"Message: {optimization_result.message}")
     print(f"Polynomial Degree: {polynomial_degree}")
-    print(f"Cubic Energy: {cubic_evaluation.energy:.4f}")
+    print(f"Baseline Quintic Energy: {cubic_evaluation.energy:.4f}")
     print(f"Optimized Energy: {optimization_result.energy:.4f}")
     print(f"Recorded Objective Evaluations: {optimization_result.cost_history.size}")
 
     save_joint_trajectory(cubic_output_path, cubic_evaluation)
     save_joint_trajectory(optimized_output_path, optimization_result.evaluation)
-    print(f"Saved cubic trajectory to: {cubic_output_path}")
+    print(f"Saved baseline trajectory to: {cubic_output_path}")
     print(f"Saved optimized trajectory to: {optimized_output_path}")
 
     if optimization_result.success:
@@ -515,11 +563,3 @@ if __name__ == "__main__":
         polynomial_degree=polynomial_degree,
     )
     plot_cost_history(optimization_result)
-
-# Cubic Energy: 76.7894
-# Optimized Energy: 76.6235
-# 76.4465
-# 76.4254
-
-# Cubic Energy: 76.7122
-# Optimized Energy: 76.1659
