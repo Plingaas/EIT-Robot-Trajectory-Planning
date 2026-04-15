@@ -13,18 +13,18 @@ from constraints import clampQ, checkReach, retimeTrajectoryLimits
 # Configuration
 # =============================================================================
 
-tMax = 15.0
-nWaypoints = 25
+tMax = 5.0
+nWaypoints = 15
 
 jointLimits = list(zip(
     np.deg2rad([-360, -360, -360, -360, -360, -360]),
     np.deg2rad([ 360,  360,  360,  360,  360,  360]),
 ))
 
-qStartDeg = np.array([0, 0, 90, -90, 0, 0], dtype=float)
+qStartDeg = np.array([0, 0, 0, 0, 0, 0], dtype=float)
 
 # ----CHANGE THIS VECTOR TO TRY NEW TARGETS (xAng, yAng, zAng, xDir, yDir, zDir) -------
-goalPose = np.array([-400, 400, 300, 0.0, 0.5, 1.0], dtype=float)
+goalPose = np.array([600, 400, 300, 0.0, 0.5, 1.0], dtype=float)
 # -----------------------------------------------------------------------------
 
 usePowerOptimization = True
@@ -246,6 +246,12 @@ def main():
     printDiagnostics(directionDiag, posDiag, jointDiag)
 
     t, dtSeg = retimeTrajectory(traj)
+
+    # Stretch to use the full allowed time
+    if t[-1] < tMax:
+        scale = tMax / t[-1]
+        t = t * scale
+        dtSeg = dtSeg * scale
 
     print(f"Retime: Tmin={t[-1]:.4f}s <= Tmax={tMax:.4f}s")
 

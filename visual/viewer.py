@@ -9,7 +9,6 @@ import open3d as o3d
 from core.kinematics.validation import validate_homogeneous_transform
 from core.types import Matrix4x4
 
-
 @dataclass(frozen=True)
 class FrameSequence:
     frames: Sequence[Mapping[str, Matrix4x4]]

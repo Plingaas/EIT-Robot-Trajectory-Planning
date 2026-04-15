@@ -1,13 +1,12 @@
 import numpy as np
 from kinematics import forwardKinematicsT
 from constraints import clampQ
-from energy import computeStepEnergyCost
+from energy import computeEnergyFromArrays
 
 
 # =============================================================================
 # Rotation Helpers
 # =============================================================================
-
 
 def vectorToR(rv):
     """
@@ -28,7 +27,6 @@ def vectorToR(rv):
     ])
 
     return np.eye(3) + np.sin(theta) * K + (1.0 - np.cos(theta)) * (K @ K)
-
 
 
 def rToVector(R):
@@ -78,7 +76,6 @@ def rToVector(R):
 # Pose Error
 # =============================================================================
 
-
 def poseError(q, targets, wPos=1.0, wRot=0.001):
     """
     Compute the weighted 6D pose error for IK.
@@ -101,7 +98,6 @@ def poseError(q, targets, wPos=1.0, wRot=0.001):
 # =============================================================================
 # Numerical Jacobian
 # =============================================================================
-
 
 def jacobianFd(q, targets, h=1e-5, wPos=1.0, wRot=0.001):
     """
@@ -130,14 +126,12 @@ def jacobianFd(q, targets, h=1e-5, wPos=1.0, wRot=0.001):
 # IK Step Helpers
 # =============================================================================
 
-
 def dampedSvdStep(U, s, Vt, e, q, qPrev, lam, smoothw):
     filt = s / (s**2 + lam**2)
     dqTask = -Vt.T @ (filt * (U.T @ e))
     dqSmooth = -smoothw * (q - qPrev)
     dq = dqTask + dqSmooth
     return dq
-
 
 
 def adaptiveDamping(sigmaMin, baseDamping, sigmaThresh, singGain):
@@ -154,7 +148,6 @@ def adaptiveDamping(sigmaMin, baseDamping, sigmaThresh, singGain):
 # =============================================================================
 # Main IK Solver
 # =============================================================================
-
 
 def solvePoseIk(
     qInit,
@@ -294,18 +287,6 @@ def solvePoseIk(
 # Trajectory Generation Helpers
 # =============================================================================
 
-
-def defaultStepCost(qPrev, qNext, qPrevPrev=None, dt=1.0, coeffs=None):
-    return computeStepEnergyCost(
-        qPrev,
-        qNext,
-        dt=dt,
-        qPrevPrev=qPrevPrev,
-        coeffs=coeffs,
-    )
-
-
-
 def estimateBaseSegmentTime(qA, qB, vMaxJoint=None, vMaxTcp=None, fkPosFn=None, minStepDt=1e-3):
     qA = np.asarray(qA, dtype=float)
     qB = np.asarray(qB, dtype=float)
@@ -328,7 +309,6 @@ def estimateBaseSegmentTime(qA, qB, vMaxJoint=None, vMaxTcp=None, fkPosFn=None, 
         dtTcp = dp / max(float(vMaxTcp), 1e-9)
 
     return max(dtJoint, dtTcp, minStepDt)
-
 
 
 def estimateStepTime(
@@ -391,6 +371,50 @@ def estimateStepTime(
     return max(dtNext, minStepDt)
 
 
+def estimateTrajectoryTimestamps(
+    traj,
+    vMaxJoint=None,
+    aMaxJoint=None,
+    vMaxTcp=None,
+    fkPosFn=None,
+    minStepDt=1e-3,
+):
+    """
+    Build an internally consistent estimated timestamp vector for a trajectory.
+    """
+    traj = np.asarray(traj, dtype=float)
+
+    if traj.ndim != 2:
+        raise ValueError("traj must be shape (N, n).")
+
+    N = traj.shape[0]
+    if N < 1:
+        raise ValueError("traj must contain at least one waypoint.")
+
+    if N == 1:
+        return np.array([0.0], dtype=float)
+
+    dtSeg = []
+
+    for i in range(1, N):
+        qPrevPrev = traj[i - 2] if i >= 2 else None
+        qPrev = traj[i - 1]
+        qNext = traj[i]
+
+        dt = estimateStepTime(
+            qPrevPrev,
+            qPrev,
+            qNext,
+            vMaxJoint=vMaxJoint,
+            aMaxJoint=aMaxJoint,
+            vMaxTcp=vMaxTcp,
+            fkPosFn=fkPosFn,
+            minStepDt=minStepDt,
+        )
+        dtSeg.append(float(dt))
+
+    return np.concatenate([[0.0], np.cumsum(np.asarray(dtSeg, dtype=float))])
+
 
 def buildCandidateSeedOffsets(nJoints, seedStepRad, candidateSeedOffsets=None):
     if candidateSeedOffsets is None:
@@ -415,7 +439,6 @@ def buildCandidateSeedOffsets(nJoints, seedStepRad, candidateSeedOffsets=None):
     return seedOffsets
 
 
-
 def solveMainCandidate(qPrev, targetsI, jointLimits, smoothw, ikSolveKwargs):
     qMain, infoMain = solvePoseIk(
         qPrev,
@@ -426,9 +449,7 @@ def solveMainCandidate(qPrev, targetsI, jointLimits, smoothw, ikSolveKwargs):
         returnInfo=True,
         **ikSolveKwargs,
     )
-
     return qMain, infoMain
-
 
 
 def chooseOldStyleCandidate(
@@ -512,12 +533,13 @@ def chooseOldStyleCandidate(
             wRot=ikSolveKwargs.get("wRot", 0.001),
         )))
         dqTry = qTry - qPrev
+
         if qPrevPrev is None:
             accelTry = 0.0
         else:
             dqPrev = qPrev - qPrevPrev
             accelTry = np.linalg.norm(dqTry - dqPrev)
-        
+
         accelWeight = ikSolveKwargs.get("accelWeight", 0.2)
         scoreTry = (
             errTry
@@ -532,8 +554,8 @@ def chooseOldStyleCandidate(
     return bestQ, solveCount, False, 0.0, 0.0
 
 
-
 def chooseEnergyOptimalCandidate(
+    trajPrefix,
     qPrev,
     qPrevPrev,
     targetsI,
@@ -543,7 +565,6 @@ def chooseEnergyOptimalCandidate(
     fallbackErrThreshold,
     continuityWeight,
     energyWeight,
-    stepCostFn,
     energyCoeffs,
     candidateSeedOffsets,
     vMaxJoint,
@@ -554,6 +575,11 @@ def chooseEnergyOptimalCandidate(
     nonMainBias,
     minEnergyImprovement,
 ):
+    """
+    Choose the next IK candidate by scoring the full trajectory prefix
+    with the same energy model used in energy.py.
+    """
+    trajPrefix = np.asarray(trajPrefix, dtype=float)
     candidates = []
     solveCount = 0
 
@@ -579,29 +605,32 @@ def chooseEnergyOptimalCandidate(
             wRot=ikSolveKwargs.get("wRot", 0.001),
         )))
 
-        dtEst = estimateStepTime(
-            qPrevPrev,
-            qPrev,
-            qTry,
-            vMaxJoint=vMaxJoint,
-            aMaxJoint=aMaxJoint,
-            vMaxTcp=vMaxTcp,
-            fkPosFn=fkPosFn,
-            minStepDt=minStepDt,
-        )
+        validCandidate = infoTry["converged"] or (errTry < fallbackErrThreshold)
 
-        rawEnergy = 0.0 if stepCostFn is None else stepCostFn(
-            qPrev,
-            qTry,
-            qPrevPrev=qPrevPrev,
-            dt=dtEst,
-            coeffs=energyCoeffs,
-        )
+        candidateTraj = np.vstack([trajPrefix, qTry])
+
+        if candidateTraj.shape[0] < 2:
+            rawEnergy = 0.0
+            tEst = np.array([0.0], dtype=float)
+        else:
+            tEst = estimateTrajectoryTimestamps(
+                candidateTraj,
+                vMaxJoint=vMaxJoint,
+                aMaxJoint=aMaxJoint,
+                vMaxTcp=vMaxTcp,
+                fkPosFn=fkPosFn,
+                minStepDt=minStepDt,
+            )
+            rawEnergy = computeEnergyFromArrays(
+                tEst,
+                candidateTraj,
+                coeffs=energyCoeffs,
+                printBreakdown=False,
+            )
 
         continuityCost = continuityWeight * np.linalg.norm(qTry - qPrev)
         biasCost = nonMainBias if seedIndex != 0 else 0.0
         totalPlanningCost = energyWeight * rawEnergy + continuityCost + biasCost
-        validCandidate = infoTry["converged"] or (errTry < fallbackErrThreshold)
 
         candidates.append({
             "q": qTry,
@@ -610,7 +639,7 @@ def chooseEnergyOptimalCandidate(
             "rawEnergy": rawEnergy,
             "continuityCost": continuityCost,
             "totalPlanningCost": totalPlanningCost,
-            "dtEst": dtEst,
+            "tEst": tEst,
             "valid": validCandidate,
         })
 
@@ -633,13 +662,14 @@ def chooseEnergyOptimalCandidate(
             best = mainCandidate
 
     switchedCandidate = (best["seedIndex"] != 0)
-    return best["q"], solveCount, switchedCandidate, best["rawEnergy"], best["dtEst"]
+    estimatedTotalTime = float(best["tEst"][-1]) if len(best["tEst"]) > 0 else 0.0
+
+    return best["q"], solveCount, switchedCandidate, best["rawEnergy"], estimatedTotalTime
 
 
 # =============================================================================
 # Trajectory Generation
 # =============================================================================
-
 
 def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwargs):
     """
@@ -654,7 +684,6 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
     nJoints = q.size
 
     traj = np.zeros((nTargets, nJoints))
-
     qPrev = q.copy()
 
     usePowerOptimization = ikKwargs.pop("usePowerOptimization", False)
@@ -663,7 +692,7 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
     energyWeight = ikKwargs.pop("energyWeight", 1.0)
     ikKwargs.pop("stepDt", None)
     ikKwargs.pop("strictCostOptimization", None)
-    stepCostFn = ikKwargs.pop("stepCostFn", defaultStepCost)
+    ikKwargs.pop("stepCostFn", None)  # no longer used
     energyCoeffs = ikKwargs.pop("energyCoeffs", None)
     seedStepRad = ikKwargs.pop("seedStepRad", 0.05)
     candidateSeedOffsets = ikKwargs.pop("candidateSeedOffsets", None)
@@ -699,7 +728,10 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
         qPrevPrev = traj[i - 2].copy() if i >= 2 else None
 
         if usePowerOptimization:
-            q, solveCountI, switchedCandidate, plannerEnergyI, dtEstI = chooseEnergyOptimalCandidate(
+            trajPrefix = traj[:i].copy()
+
+            q, solveCountI, switchedCandidate, plannerEnergyI, tEstI = chooseEnergyOptimalCandidate(
+                trajPrefix,
                 qPrev,
                 qPrevPrev,
                 targets[i],
@@ -709,7 +741,6 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
                 fallbackErrThreshold,
                 continuityWeight,
                 energyWeight,
-                stepCostFn,
                 energyCoeffs,
                 candidateSeedOffsets,
                 vMaxJoint,
@@ -721,7 +752,7 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
                 minEnergyImprovement,
             )
         else:
-            q, solveCountI, switchedCandidate, plannerEnergyI, dtEstI = chooseOldStyleCandidate(
+            q, solveCountI, switchedCandidate, plannerEnergyI, tEstI = chooseOldStyleCandidate(
                 qPrev,
                 qPrevPrev,
                 targets[i],
@@ -736,8 +767,8 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
         if switchedCandidate:
             switchedCandidateCount += 1
 
-        accumulatedPlannerEnergy += plannerEnergyI
-        accumulatedEstimatedTime += dtEstI
+        accumulatedPlannerEnergy = plannerEnergyI
+        accumulatedEstimatedTime = tEstI
 
         traj[i] = q
         qPrev = q
@@ -746,8 +777,8 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
     if usePowerOptimization:
         print(f"IK candidate solves: {solveCount}")
         print(f"IK non-main selections: {switchedCandidateCount}/{nTargets}")
-        print(f"Accumulated planner energy score: {accumulatedPlannerEnergy:.6f}")
-        print(f"Accumulated estimated step time: {accumulatedEstimatedTime:.6f}s")
+        print(f"Planner trajectory energy score: {accumulatedPlannerEnergy:.6f}")
+        print(f"Estimated prefix duration: {accumulatedEstimatedTime:.6f}s")
 
     return traj
 
@@ -755,7 +786,6 @@ def generateTrajectoryPose(qStart, targets, jointLimits, smoothw=1e-2, **ikKwarg
 # =============================================================================
 # Singularity Metric
 # =============================================================================
-
 
 def singularityCost(q, targets, h=1e-5, wPos=1.0, wRot=0.001, eps=1e-8):
     """
