@@ -6,6 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from core.dynamics import inverse_dynamics, precompute_inverse_dynamics_constants
+from core.energy import compare_potential_energy
 from core.kinematics.fk import fk
 from core.types import Matrix4x4, Matrix6x6, Matrix6xn, Vector3, Vector6, Vectorn
 
@@ -363,7 +364,10 @@ def evaluate_shaped_trajectory_energy(
             constants=dynamics_constants,
         )
         tau_samples.append(tau_k)
+        # power_samples.append(float(np.sum(tau_k * q_dot_k)))
+        # power_samples.append(np.sum(np.maximum(tau_k * q_dot_k, 0.0))) # Super important
         power_samples.append(float(np.sum(np.abs(tau_k * q_dot_k))))
+
 
     tau = np.asarray(tau_samples, dtype=float)
     power = np.asarray(power_samples, dtype=float)
@@ -441,10 +445,6 @@ def optimize_trajectory_shape(
         x0=x0,
         method=method,
         bounds=bounds,
-        options={
-            "maxiter": maxiter,
-            "maxfev": maxfev,
-        },
     )
     success = bool(result.success)
     message = str(result.message)
@@ -481,22 +481,75 @@ def optimize_trajectory_shape(
 
 
 if __name__ == "__main__":
-    from robot.ur5e_parameters import M_LIST, G_LIST, S
+    from robot.ur5e_parameters import (
+        M_LIST,
+        G_LIST,
+        S,
+        BASE_MASS,
+        SHOULDER_MASS,
+        ELBOW_MASS,
+        FOREARM_MASS,
+        WRIST_MASS,
+        END_EFFECTOR_MASS,
+        BASE_COM,
+        SHOULDER_COM,
+        ELBOW_COM,
+        FOREARM_COM,
+        WRIST_COM,
+        END_EFFECTOR_COM,
+    )
     from pyinstrument import Profiler
 
     cubic_output_path = Path("trajectories/cubic_trajectory.json")
     optimized_output_path = Path("trajectories/optimized_trajectory.json")
     cubic_output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    q_start = np.zeros(6, dtype=float) 
-    q_goal = np.array([0.0, np.pi, np.pi/3, 0.0, 0.0, 0.0], dtype=float)
+    # q_start = np.array([0.0, np.pi/2, np.pi/2, 0.0, 0.0, 0.0], dtype=float)
+    # q_goal = np.array([np.pi, 0.0, -np.pi/2, np.pi, 0.0, 0.0], dtype=float)
+    q_start = np.array([0.0, np.pi+0.0, np.pi/3, 0.0, 0.0, 0.0], dtype=float)
+    q_goal = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
     # q_goal = np.array([0.0, np.pi, 0.0, 0.0, 0.0, 0.0], dtype=float)
 
     duration = 5.0
-    polynomial_degree = 7
+    polynomial_degree = 6
     g = np.array([0.0, 0.0, -9.81])
     Ftip = np.zeros(6)
-    payload_mass = 5
+    payload_mass = 10
+
+    pe_comparison = compare_potential_energy(
+        q_start=q_start,
+        q_goal=q_goal,
+        g=g,
+        M_LIST=M_LIST,
+        S=S,
+        link_masses=np.array(
+            [
+                BASE_MASS,
+                SHOULDER_MASS,
+                ELBOW_MASS,
+                FOREARM_MASS,
+                WRIST_MASS,
+                END_EFFECTOR_MASS,
+            ],
+            dtype=float,
+        ),
+        link_com_positions=np.array(
+            [
+                BASE_COM,
+                SHOULDER_COM,
+                ELBOW_COM,
+                FOREARM_COM,
+                WRIST_COM,
+                END_EFFECTOR_COM,
+            ],
+            dtype=float,
+        ),
+        link_names=("base", "shoulder", "elbow", "forearm", "wrist", "end_effector"),
+        payload_mass=payload_mass,
+    )
+    print(f"Start PE: {pe_comparison.start.total_potential_energy:.6f} J")
+    print(f"Goal PE: {pe_comparison.goal.total_potential_energy:.6f} J")
+    print(f"Delta PE: {pe_comparison.delta_potential_energy:.6f} J")
 
     with Profiler() as profiler:
 
@@ -526,7 +579,7 @@ if __name__ == "__main__":
             M_LIST=M_LIST,
             G_LIST=G_LIST,
             S=S,
-            shape_bounds=(-100.0, 100.0),
+            shape_bounds=(-1000.0, 1000.0),
             num_samples=100,
             method="SLSQP",
             maxiter=100,
