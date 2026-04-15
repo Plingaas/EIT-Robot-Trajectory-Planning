@@ -1,6 +1,6 @@
 import numpy as np 
 from core.types import Matrix4x4, Matrix6xn, Vectorn
-from core.se3 import exp_se3, hat
+from core.se3 import exp_se3_twist
 from core.kinematics.validation import validate_poe_inputs
 
 
@@ -20,9 +20,7 @@ def fk(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> Matrix4x4:
 
     A = np.eye(4, dtype=float)
     for i in range(q.size):
-        screw_axis = S[:, i]  
-        twist_matrix = hat(screw_axis) 
-        A = A @ exp_se3(twist_matrix * q[i])
+        A = A @ exp_se3_twist(S[:, i], q[i])
     return A @ M
 
 
@@ -52,9 +50,7 @@ def fk_all(M: Matrix4x4, S: Matrix6xn, q: Vectorn) -> tuple[list[Matrix4x4], lis
     T_list = [M.copy()]
 
     for i in range(q.size):
-        screw_axis = S[:, i]  
-        twist_matrix = hat(screw_axis) 
-        A = A @ exp_se3(twist_matrix * q[i])
+        A = A @ exp_se3_twist(S[:, i], q[i])
         A_list.append(A.copy())
         T_list.append((A @ M).copy())
     return A_list, T_list
@@ -95,4 +91,3 @@ def fk_links(M_links: list[Matrix4x4], S: Matrix6xn, q: Vectorn) -> list[Matrix4
 
     A_list, _ = fk_all(home_frames[0], S, q)
     return [A_list[i] @ home_frames[i] for i in range(len(home_frames))]
-

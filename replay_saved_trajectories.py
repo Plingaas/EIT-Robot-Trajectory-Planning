@@ -1,5 +1,4 @@
 import json
-from multiprocessing import Process
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +12,8 @@ from visual.viewer import FrameSequence, Viewer
 CUBIC_TRAJECTORY_PATH = Path("trajectories/cubic_trajectory.json")
 OPTIMIZED_TRAJECTORY_PATH = Path("trajectories/optimized_trajectory.json")
 REPLAY_LOOP = True
+CUBIC_OFFSET = np.array([0.0, -0.4, 0.0], dtype=float)
+OPTIMIZED_OFFSET = np.array([0.0, 0.4, 0.0], dtype=float)
 
 
 def load_joint_trajectory(path: str | Path) -> tuple[np.ndarray, list[np.ndarray]]:
@@ -38,63 +39,106 @@ def load_joint_trajectory(path: str | Path) -> tuple[np.ndarray, list[np.ndarray
 
 def trajectory_file_to_frame_sequence(
     path: str | Path,
+    name_prefix: str = "",
+    world_offset: np.ndarray | None = None,
     home_frame_list: tuple[np.ndarray, ...] | list[np.ndarray] = M_LIST,
 ) -> FrameSequence:
     times, q_path = load_joint_trajectory(path)
+    world_offset = np.zeros(3, dtype=float) if world_offset is None else np.asarray(world_offset, dtype=float)
 
     frames = []
     for q in q_path:
         link_frames = fk_links(home_frame_list, S, q)
-        frames.append(dict(zip(LINK_ORDER, link_frames)))
+        frame = {}
+        for name, transform in zip(LINK_ORDER, link_frames):
+            T = np.array(transform, dtype=float, copy=True)
+            T[:3, 3] += world_offset
+            frame[f"{name_prefix}{name}"] = T
+        frames.append(frame)
 
     return FrameSequence(frames=frames, times=times.tolist())
 
 
-def replay_saved_trajectory(
-    path: str | Path,
-    window_name: str,
-    loop: bool = True,
+def add_robot_to_viewer(
+    viewer: Viewer,
+    robot: UR5e,
+    name_prefix: str,
+    world_offset: np.ndarray,
+    trace_color: tuple[float, float, float],
 ) -> None:
-    robot = UR5e()
-    viewer = Viewer(window_name=window_name, world_frame_size=0.25)
-    viewer.add_robot(robot, frame_size=0.1)
-    viewer.add_trace("end_effector")
+    world_offset = np.asarray(world_offset, dtype=float)
+    for link in robot.links:
+        T = np.array(link.home_frame, dtype=float, copy=True)
+        T[:3, 3] += world_offset
+        viewer.add_mesh(
+            name=f"{name_prefix}{link.name}",
+            mesh=robot.load_mesh(link.name),
+            transform=T,
+            frame_size=0.1,
+        )
+    viewer.add_trace(f"{name_prefix}end_effector", color=trace_color)
 
-    sequence = trajectory_file_to_frame_sequence(path)
-    viewer.run_sequence(sequence=sequence, loop=loop)
+
+def merge_frame_sequences(*sequences: FrameSequence) -> FrameSequence:
+    if not sequences:
+        raise ValueError("At least one FrameSequence is required.")
+
+    reference_times = list(sequences[0].times)
+    for sequence in sequences[1:]:
+        if len(sequence.times) != len(reference_times):
+            raise ValueError("All FrameSequences must have the same number of frames.")
+        if not np.allclose(sequence.times, reference_times):
+            raise ValueError("All FrameSequences must share the same timestamps.")
+
+    merged_frames = []
+    for frame_group in zip(*(sequence.frames for sequence in sequences)):
+        merged_frame = {}
+        for frame in frame_group:
+            merged_frame.update(frame)
+        merged_frames.append(merged_frame)
+
+    return FrameSequence(frames=merged_frames, times=reference_times)
 
 
-def launch_parallel_replays(
+def replay_saved_trajectories_in_same_window(
     cubic_path: str | Path,
     optimized_path: str | Path,
     loop: bool = True,
 ) -> None:
-    processes = [
-        Process(
-            target=replay_saved_trajectory,
-            args=(Path(cubic_path), "Replay: Cubic Trajectory", loop),
-        ),
-        Process(
-            target=replay_saved_trajectory,
-            args=(Path(optimized_path), "Replay: Optimized Trajectory", loop),
-        ),
-    ]
+    viewer = Viewer(window_name="Replay: Cubic vs Optimized", world_frame_size=0.25)
+    robot = UR5e()
 
-    try:
-        for process in processes:
-            process.start()
-        for process in processes:
-            process.join()
-    finally:
-        for process in processes:
-            if process.is_alive():
-                process.terminate()
-        for process in processes:
-            process.join()
+    add_robot_to_viewer(
+        viewer=viewer,
+        robot=robot,
+        name_prefix="cubic_",
+        world_offset=CUBIC_OFFSET,
+        trace_color=(0.0, 0.8, 0.0),
+    )
+    add_robot_to_viewer(
+        viewer=viewer,
+        robot=robot,
+        name_prefix="optimized_",
+        world_offset=OPTIMIZED_OFFSET,
+        trace_color=(0.9, 0.2, 0.2),
+    )
+
+    cubic_sequence = trajectory_file_to_frame_sequence(
+        cubic_path,
+        name_prefix="cubic_",
+        world_offset=CUBIC_OFFSET,
+    )
+    optimized_sequence = trajectory_file_to_frame_sequence(
+        optimized_path,
+        name_prefix="optimized_",
+        world_offset=OPTIMIZED_OFFSET,
+    )
+    merged_sequence = merge_frame_sequences(cubic_sequence, optimized_sequence)
+    viewer.run_sequence(merged_sequence, loop=loop)
 
 
 if __name__ == "__main__":
-    launch_parallel_replays(
+    replay_saved_trajectories_in_same_window(
         CUBIC_TRAJECTORY_PATH,
         OPTIMIZED_TRAJECTORY_PATH,
         loop=REPLAY_LOOP,
