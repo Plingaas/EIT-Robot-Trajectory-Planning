@@ -1,4 +1,5 @@
 import json
+import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
@@ -87,7 +88,10 @@ def save_joint_trajectory(path: str | Path, evaluation: EnergyEvaluation) -> Non
         "waypoints": [
             {
                 "t": float(t_k),
-                "q": [float(value) for value in q_k],
+                "q": [
+                    float(value - np.pi / 2) if joint_idx == 4 else float(value)
+                    for joint_idx, value in enumerate(q_k)
+                ],
             }
             for t_k, q_k in zip(evaluation.t, evaluation.q)
         ],
@@ -877,12 +881,14 @@ if __name__ == "__main__":
         END_EFFECTOR_COM,
     )
 
-    cubic_output_path = Path("trajectories/cubic_trajectory.json")
-    optimized_output_path = Path("trajectories/optimized_trajectory.json")
-    cubic_output_path.parent.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
 
-    q_start = np.array([0.0, np.pi/2, np.pi/2, 0.0, 0.0, 0.0], dtype=float)
-    q_goal = np.array([np.pi, 0.0, -np.pi/2, np.pi, 0.0, 0.0], dtype=float)
+    quintic_output_path = Path("trajectories/quintic_trajectory.json")
+    optimized_output_path = Path("trajectories/optimized_trajectory.json")
+    quintic_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    q_start = np.array([0.0, 5*np.pi/6, -np.pi/2, 0.0, np.pi/2, 0.0], dtype=float)
+    q_goal = np.array([np.pi, 0.0, 0.0, 0.0, np.pi/2, 0.0], dtype=float)
     # q_start = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
     # q_goal = np.array([0.0, np.pi+0.0, np.pi/3, 0.0, 0.0, 0.0], dtype=float)
 
@@ -890,10 +896,10 @@ if __name__ == "__main__":
     _validate_joint3_endpoint(q_goal, "q_goal")
 
     duration = 5.0
-    polynomial_degree = 6
+    polynomial_degree = 7
     g = np.array([0.0, 0.0, -9.81])
     Ftip = np.zeros(6)
-    payload_mass = 10
+    payload_mass = 0
 
     pe_comparison = compare_potential_energy(
         q_start=q_start,
@@ -930,7 +936,9 @@ if __name__ == "__main__":
     print(f"Goal PE: {pe_comparison.goal.total_potential_energy:.6f} J")
     print(f"Delta PE: {pe_comparison.delta_potential_energy:.6f} J")
 
-    cubic_evaluation = evaluate_shaped_trajectory_energy(
+    num_samples = 1000
+
+    quintic_evaluation = evaluate_shaped_trajectory_energy(
         q_start=q_start,
         q_goal=q_goal,
         duration=duration,
@@ -942,7 +950,7 @@ if __name__ == "__main__":
         M_LIST=M_LIST,
         G_LIST=G_LIST,
         S=S,
-        num_samples=100,
+        num_samples=num_samples,
     )
 
     optimization_result = optimize_trajectory_shape(
@@ -960,15 +968,18 @@ if __name__ == "__main__":
         G_LIST=G_LIST,
         S=S,
         shape_bounds=(-1000.0, 1000.0),
-        num_samples=100,
+        num_samples=num_samples,
         method="SLSQP",
     )
+
+    t1 = time.time()
+    print(f"Total optimization time: {t1 - t0:.2f} seconds")
 
     print("Optimization Result:")
     print("Method: SLSQP")
     print(f"Success: {optimization_result.success}")
     print(f"Polynomial Degree: {polynomial_degree}")
-    print(f"Baseline 5th Degree Energy: {cubic_evaluation.energy:.4f}")
+    print(f"Baseline 5th Degree Energy: {quintic_evaluation.energy:.4f}")
     print(f"Optimized Energy: {optimization_result.energy:.4f}")
     print(f"Selected Direction Branch Bits: {optimization_result.direction_branch_bits}")
     if optimization_result.standard_branch_evaluation is not None:
@@ -978,19 +989,22 @@ if __name__ == "__main__":
 
     print(f"Recorded Objective Evaluations: {optimization_result.cost_history.size}")
 
-    save_joint_trajectory(cubic_output_path, cubic_evaluation)
+    save_joint_trajectory(quintic_output_path, quintic_evaluation)
     save_joint_trajectory(optimized_output_path, optimization_result.evaluation)
 
     if optimization_result.success:
         plot_joint_trajectory_comparison(
-            cubic_evaluation,
+            quintic_evaluation,
             optimization_result.evaluation,
             polynomial_degree=polynomial_degree,
         )
     plot_power_comparison(
-        cubic_evaluation,
+        quintic_evaluation,
         optimization_result.evaluation,
         polynomial_degree=polynomial_degree,
         standard_branch_evaluation=optimization_result.standard_branch_evaluation,
     )
     plot_cost_history(optimization_result)
+
+
+#
