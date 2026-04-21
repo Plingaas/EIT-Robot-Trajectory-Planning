@@ -89,7 +89,7 @@ END_EFFECTOR_HOME_FRAME = np.array([
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
-HOME_FRAMES = {
+STL_HOME_FRAMES = {
     "mount": MOUNT_HOME_FRAME,
     "base": BASE_HOME_FRAME,
     "shoulder": SHOULDER_HOME_FRAME,

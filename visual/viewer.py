@@ -121,8 +121,6 @@ class Viewer:
         color: tuple[float, float, float] = (0.0, 1.0, 0.0),
         max_points: int = 5000,
     ) -> None:
-        if target_name not in self._objects:
-            raise KeyError(f"Unknown mesh '{target_name}'.")
         if target_name in self._traces:
             raise ValueError(f"Trace for '{target_name}' already exists.")
         if max_points < 2:
@@ -161,11 +159,9 @@ class Viewer:
         visual_object.current_transform = T_new.copy()
 
     def set_transforms(self, transforms: Mapping[str, Matrix4x4]) -> None:
-        missing = [name for name in transforms if name not in self._objects]
-        if missing:
-            raise KeyError(f"Unknown meshes in frame: {missing}")
-
         for name, transform in transforms.items():
+            if name not in self._objects:
+                continue
             self._set_transform(name, transform)
 
         self._update_traces(transforms)
