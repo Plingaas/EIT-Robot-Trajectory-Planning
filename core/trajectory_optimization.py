@@ -434,12 +434,14 @@ def evaluate_shaped_trajectory_energy(
     polynomial_degree: int = POLYNOMIAL_DEGREE,
     freeze_stationary_joints: bool = False,
     joint_delta: Vectorn | None = None,
+    dynamics_constants=None,
 ) -> EnergyEvaluation:
-    dynamics_constants = precompute_inverse_dynamics_constants(
-        M_LIST=M_LIST,
-        G_LIST=G_LIST,
-        S=S,
-    )
+    if dynamics_constants is None:
+        dynamics_constants = precompute_inverse_dynamics_constants(
+            M_LIST=M_LIST,
+            G_LIST=G_LIST,
+            S=S,
+        )
     trajectory = sample_shaped_joint_trajectory(
         q_start=q_start,
         q_goal=q_goal,
@@ -539,6 +541,11 @@ def _optimize_direction_branch(args: tuple) -> BranchOptimizationResult:
     ) = args
 
     x0 = np.zeros(n_shape_coefficients * active_joint_indices.size, dtype=float)
+    dynamics_constants = precompute_inverse_dynamics_constants(
+        M_LIST=M_LIST,
+        G_LIST=G_LIST,
+        S=S,
+    )
 
     def expand_active_shape_params(active_shape_params: Vectorn) -> Vectorn:
         full_coeffs = np.zeros((n_joints, n_shape_coefficients), dtype=float)
@@ -568,6 +575,7 @@ def _optimize_direction_branch(args: tuple) -> BranchOptimizationResult:
             S=S,
             num_samples=num_samples,
             joint_delta=joint_delta,
+            dynamics_constants=dynamics_constants,
         )
         cost = evaluation.energy
         branch_cost_history.append(cost)
@@ -617,6 +625,7 @@ def _optimize_direction_branch(args: tuple) -> BranchOptimizationResult:
         S=S,
         num_samples=num_samples,
         joint_delta=joint_delta,
+        dynamics_constants=dynamics_constants,
     )
     min_constraint_margin = np.inf
     if joint3_limits is not None:
@@ -709,6 +718,11 @@ def optimize_trajectory_shape(
     all_cost_history: list[float] = []
 
     if x0.size == 0:
+        dynamics_constants = precompute_inverse_dynamics_constants(
+            M_LIST=M_LIST,
+            G_LIST=G_LIST,
+            S=S,
+        )
         joint_delta, direction_branch_bits = branch_candidates[0]
         best_evaluation = evaluate_shaped_trajectory_energy(
             q_start=q_start,
@@ -725,6 +739,7 @@ def optimize_trajectory_shape(
             S=S,
             num_samples=num_samples,
             joint_delta=joint_delta,
+            dynamics_constants=dynamics_constants,
         )
         all_cost_history.append(best_evaluation.energy)
         success = True
@@ -936,7 +951,7 @@ if __name__ == "__main__":
     print(f"Goal PE: {pe_comparison.goal.total_potential_energy:.6f} J")
     print(f"Delta PE: {pe_comparison.delta_potential_energy:.6f} J")
 
-    num_samples = 1000
+    num_samples = 100
 
     quintic_evaluation = evaluate_shaped_trajectory_energy(
         q_start=q_start,
@@ -1007,4 +1022,3 @@ if __name__ == "__main__":
     plot_cost_history(optimization_result)
 
 
-#
