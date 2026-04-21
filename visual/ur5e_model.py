@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 
 from visual.model import VisualLink, VisualRobot
-from robot.ur5e_parameters import HOME_FRAMES
+from robot.ur5e_parameters import STL_HOME_FRAMES
 
 ROOT = Path(__file__).resolve().parent.parent
 MM_TO_M = 1e-3
@@ -36,7 +36,7 @@ class UR5e(VisualRobot):
                 VisualLink(
                     name=name,
                     mesh_path=ROOT / MESH_PATHS[name],
-                    home_frame=np.array(HOME_FRAMES[name], dtype=float, copy=True),
+                    home_frame=np.array(STL_HOME_FRAMES[name], dtype=float, copy=True),
                     mesh_scale=MM_TO_M,
                 )
             )

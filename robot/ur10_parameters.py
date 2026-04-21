@@ -40,49 +40,49 @@ S = np.column_stack((s1, s2, s3, s4, s5, s6)) # This is the screw axes matrix in
 M_MOUNT = np.array([
     [1.0, 0.0, 0.0, 0.0],
     [0.0, 1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 38.0],
+    [0.0, 0.0, 1.0, 38.0 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
 M_BASE = np.array([
     [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, -86.0],
-    [0.0, 0.0, 1.0, 128.0],
+    [0.0, 1.0, 0.0, -86.0 * MM_TO_M],
+    [0.0, 0.0, 1.0, 128.0 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
 M_SHOULDER = np.array([
     [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, -107.9],
-    [0.0, 0.0, 1.0, 740.1],
+    [0.0, 1.0, 0.0, -107.9 * MM_TO_M],
+    [0.0, 0.0, 1.0, 740.1 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
 M_ELBOW = np.array([
     [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, -109.9],
-    [0.0, 0.0, 1.0, 1311.7],
+    [0.0, 1.0, 0.0, -109.9 * MM_TO_M],
+    [0.0, 0.0, 1.0, 1311.7 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
 M_FOREARM = np.array([
     [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, -163.9],
-    [0.0, 0.0, 1.0, 1373.4],
+    [0.0, 1.0, 0.0, -163.9 * MM_TO_M],
+    [0.0, 0.0, 1.0, 1373.4 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
 M_WRIST = np.array([
     [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, -225.6],
-    [0.0, 0.0, 1.0, 1427.4],
+    [0.0, 1.0, 0.0, -225.6 * MM_TO_M],
+    [0.0, 0.0, 1.0, 1427.4 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
 M_END_EFFECTOR = np.array([
     [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, -256.1],
-    [0.0, 0.0, 1.0, 1427.4],
+    [0.0, 1.0, 0.0, -256.1 * MM_TO_M],
+    [0.0, 0.0, 1.0, 1427.4 * MM_TO_M],
     [0.0, 0.0, 0.0, 1.0],
 ], dtype=float)
 
@@ -96,7 +96,9 @@ M_LIST = (
     M_END_EFFECTOR,
 )
 
-HOME_FRAMES = {
+STL_HOME_FRAMES = {
+    # UR10 STLs are exported in the global CAD frame, so their home placement is
+    # already baked into the vertex coordinates. Kinematic frames live in M_LIST.
     "mount": np.eye(4, dtype=float),
     "base": np.eye(4, dtype=float),
     "shoulder": np.eye(4, dtype=float),
@@ -175,5 +177,4 @@ G_WRIST = spatial_inertia(WRIST_MASS, WRIST_COM, WRIST_INERTIA)
 G_END_EFFECTOR = spatial_inertia(END_EFFECTOR_MASS, END_EFFECTOR_COM, END_EFFECTOR_INERTIA)
 
 G_LIST = (G_BASE, G_SHOULDER, G_ELBOW, G_FOREARM, G_WRIST, G_END_EFFECTOR)
-
 
