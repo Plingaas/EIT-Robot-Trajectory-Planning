@@ -9,10 +9,10 @@ from visual.ur5e_model import LINK_ORDER, UR5e
 from visual.viewer import FrameSequence, Viewer
 
 
-CUBIC_TRAJECTORY_PATH = Path("trajectories/cubic_trajectory.json")
+QUINTIC_TRAJECTORY_PATH = Path("trajectories/quintic_trajectory.json")
 OPTIMIZED_TRAJECTORY_PATH = Path("trajectories/optimized_trajectory.json")
 REPLAY_LOOP = True
-CUBIC_OFFSET = np.array([0.0, -0.4, 0.0], dtype=float)
+QUINTIC_OFFSET = np.array([0.0, -0.4, 0.0], dtype=float)
 OPTIMIZED_OFFSET = np.array([0.0, 0.4, 0.0], dtype=float)
 
 
@@ -101,18 +101,18 @@ def merge_frame_sequences(*sequences: FrameSequence) -> FrameSequence:
 
 
 def replay_saved_trajectories_in_same_window(
-    cubic_path: str | Path,
+    quintic_path: str | Path,
     optimized_path: str | Path,
     loop: bool = True,
 ) -> None:
-    viewer = Viewer(window_name="Replay: Cubic vs Optimized", world_frame_size=0.25)
+    viewer = Viewer(window_name="Replay: Quintic vs Optimized", world_frame_size=0.25)
     robot = UR5e()
 
     add_robot_to_viewer(
         viewer=viewer,
         robot=robot,
-        name_prefix="cubic_",
-        world_offset=CUBIC_OFFSET,
+        name_prefix="quintic_",
+        world_offset=QUINTIC_OFFSET,
         trace_color=(0.0, 0.8, 0.0),
     )
     add_robot_to_viewer(
@@ -123,23 +123,23 @@ def replay_saved_trajectories_in_same_window(
         trace_color=(0.9, 0.2, 0.2),
     )
 
-    cubic_sequence = trajectory_file_to_frame_sequence(
-        cubic_path,
-        name_prefix="cubic_",
-        world_offset=CUBIC_OFFSET,
+    quintic_sequence = trajectory_file_to_frame_sequence(
+        quintic_path,
+        name_prefix="quintic_",
+        world_offset=QUINTIC_OFFSET,
     )
     optimized_sequence = trajectory_file_to_frame_sequence(
         optimized_path,
         name_prefix="optimized_",
         world_offset=OPTIMIZED_OFFSET,
     )
-    merged_sequence = merge_frame_sequences(cubic_sequence, optimized_sequence)
+    merged_sequence = merge_frame_sequences(quintic_sequence, optimized_sequence)
     viewer.run_sequence(merged_sequence, loop=loop)
 
 
 if __name__ == "__main__":
     replay_saved_trajectories_in_same_window(
-        CUBIC_TRAJECTORY_PATH,
+        QUINTIC_TRAJECTORY_PATH,
         OPTIMIZED_TRAJECTORY_PATH,
         loop=REPLAY_LOOP,
     )
