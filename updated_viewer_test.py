@@ -1,9 +1,13 @@
 import numpy as np
 
-from core.kinematics.fk import fk_links
-from robot.ur5e_parameters import M_LIST, S
-from visual.ur5e_model import LINK_ORDER, UR5e
+from core.kinematics.fk import fk_all, fk_links
+# from robot.ur5e_parameters import M_LIST, S
+# from visual.ur5e_model import LINK_ORDER, UR5e
+from robot.ur10_parameters import M_LIST, S
+from visual.ur10_model import LINK_ORDER, UR10
 from visual.viewer import FrameSequence, Viewer
+
+MESHES_ARE_GLOBAL_CAD_EXPORTS = True
 
 
 def shortest_angular_delta(q_start: np.ndarray, q_goal: np.ndarray) -> np.ndarray:
@@ -33,14 +37,25 @@ def build_frame_sequence(
     home_frame_list: list[np.ndarray],
     q_path: list[np.ndarray],
     dt: float,
+    meshes_are_global_cad_exports: bool = False,
 ) -> FrameSequence:
     if dt <= 0.0:
         raise ValueError("dt must be > 0.")
 
     frames = []
     for q in q_path:
-        link_frames = fk_links(home_frame_list, S, q)
-        frames.append(dict(zip(LINK_ORDER, link_frames)))
+        if meshes_are_global_cad_exports:
+            # Global-frame STLs already contain their home offsets, so move
+            # meshes by the joint product A_i only.
+            motion_frames, _ = fk_all(home_frame_list[0], S, q)
+            frame = dict(zip(LINK_ORDER, motion_frames))
+            frame["tcp"] = motion_frames[-1] @ home_frame_list[-1]
+        else:
+            # Link-local STLs need the full link frame A_i @ M_i.
+            link_frames = fk_links(home_frame_list, S, q)
+            frame = dict(zip(LINK_ORDER, link_frames))
+            frame["tcp"] = link_frames[-1]
+        frames.append(frame)
     times = (np.arange(len(frames), dtype=float) * dt).tolist()
     return FrameSequence(frames=frames, times=times)
 
@@ -84,12 +99,17 @@ def build_sway_path(num_cycles: int, steps_per_cycle: int) -> list[np.ndarray]:
 
 
 if __name__ == "__main__":
-    robot = UR5e()
-    viewer = Viewer(window_name="UR5e Motion Test", world_frame_size=0.25)
+    robot = UR10()
+    viewer = Viewer(window_name="UR10 Motion Test", world_frame_size=0.25)
     viewer.add_robot(robot, frame_size=0.1)
-    viewer.add_trace("end_effector")
+    viewer.add_trace("tcp")
 
     q_path = build_sway_path(num_cycles=6, steps_per_cycle=90)
-    sequence = build_frame_sequence(M_LIST, q_path, dt=0.1)
+    sequence = build_frame_sequence(
+        M_LIST,
+        q_path,
+        dt=0.1,
+        meshes_are_global_cad_exports=MESHES_ARE_GLOBAL_CAD_EXPORTS,
+    )
 
     viewer.run_sequence(sequence=sequence, loop=True)
